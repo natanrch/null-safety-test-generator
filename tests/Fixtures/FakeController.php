@@ -6,8 +6,11 @@ class FakeController
 {
     public function show(FakeObject $object)
     {
+        $otherObject = AnotherFakeObject::find(1);
+
         return [
-            'Object' => $object,
+            'object' => $object,
+            'otherObject' => $otherObject,
         ];
     }
 }
