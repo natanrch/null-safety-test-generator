@@ -5,8 +5,10 @@ namespace Natan\NullSafetyTestGenerator\Tests\Unit;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\AnotherFakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithAdditionalObjectMethods;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithChainedMethods;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithCollections;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithPluckedCollection;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use PHPUnit\Framework\TestCase;
 
@@ -124,6 +126,47 @@ class ControllerMethodAnalyzerTest extends TestCase
             ],
 
             'allObjects' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'collection',
+            ],
+        ], $result);
+    }
+
+    public function test_it_identifies_additional_methods_that_return_objects(): void
+    {
+        $analyzer = new ControllerMethodAnalyzer();
+
+        $result = $analyzer->getObjectClasses(
+            FakeControllerWithAdditionalObjectMethods::class,
+            'show'
+        );
+
+        $objectMetadata = [
+            'class' => AnotherFakeObject::class,
+            'type' => 'object',
+        ];
+
+        $this->assertSame([
+            'foundObject' => $objectMetadata,
+            'firstObject' => $objectMetadata,
+            'soleObject' => $objectMetadata,
+            'createdObject' => $objectMetadata,
+            'firstOrCreatedObject' => $objectMetadata,
+            'firstOrNewObject' => $objectMetadata,
+        ], $result);
+    }
+
+    public function test_it_identifies_collection_returned_by_pluck(): void
+    {
+        $analyzer = new ControllerMethodAnalyzer();
+
+        $result = $analyzer->getObjectClasses(
+            FakeControllerWithPluckedCollection::class,
+            'show'
+        );
+
+        $this->assertSame([
+            'values' => [
                 'class' => AnotherFakeObject::class,
                 'type' => 'collection',
             ],
