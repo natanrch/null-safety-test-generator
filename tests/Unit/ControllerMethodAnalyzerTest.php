@@ -6,6 +6,7 @@ use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\AnotherFakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithChainedMethods;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithCollections;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use PHPUnit\Framework\TestCase;
 
@@ -23,7 +24,10 @@ class ControllerMethodAnalyzerTest extends TestCase
         $this->assertArrayHasKey('object', $result);
 
         $this->assertSame(
-            FakeObject::class,
+            [
+                'class' => FakeObject::class,
+                'type' => 'object',
+            ],
             $result['object']
         );
     }
@@ -40,7 +44,10 @@ class ControllerMethodAnalyzerTest extends TestCase
         $this->assertArrayHasKey('otherObject', $result);
 
         $this->assertSame(
-            AnotherFakeObject::class,
+            [
+                'class' => AnotherFakeObject::class,
+                'type' => 'object',
+            ],
             $result['otherObject']
         );
     }
@@ -55,8 +62,14 @@ class ControllerMethodAnalyzerTest extends TestCase
         );
 
         $this->assertSame([
-            'object' => FakeObject::class,
-            'otherObject' => AnotherFakeObject::class,
+            'object' => [
+                'class' => FakeObject::class,
+                'type' => 'object',
+            ],
+            'otherObject' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'object',
+            ],
         ], $result);
     }
 
@@ -70,9 +83,50 @@ class ControllerMethodAnalyzerTest extends TestCase
         );
 
         $this->assertSame([
-            'object' => FakeObject::class,
-            'firstObject' => AnotherFakeObject::class,
-            'secondObject' => AnotherFakeObject::class,
+            'object' => [
+                'class' => FakeObject::class,
+                'type' => 'object',
+            ],
+            'firstObject' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'object',
+            ],
+            'secondObject' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'object',
+            ],
+        ], $result);
+    }
+
+    public function test_it_differentiates_objects_from_collections(): void
+    {
+        $analyzer = new ControllerMethodAnalyzer();
+
+        $result = $analyzer->getObjectClasses(
+            FakeControllerWithCollections::class,
+            'show'
+        );
+
+        $this->assertSame([
+            'object' => [
+                'class' => FakeObject::class,
+                'type' => 'object',
+            ],
+
+            'firstObject' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'object',
+            ],
+
+            'objects' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'collection',
+            ],
+
+            'allObjects' => [
+                'class' => AnotherFakeObject::class,
+                'type' => 'collection',
+            ],
         ], $result);
     }
 }

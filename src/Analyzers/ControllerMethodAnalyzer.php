@@ -12,6 +12,23 @@ use ReflectionNamedType;
 
 class ControllerMethodAnalyzer
 {
+    private const OBJECT_RETURNING_METHODS = [
+        'find',
+        'findOrFail',
+        'first',
+        'firstOrFail',
+        'sole',
+        'create',
+        'firstOrCreate',
+        'firstOrNew',
+    ];
+
+    private const COLLECTION_RETURNING_METHODS = [
+        'get',
+        'all',
+        'pluck',
+    ];
+
     public function getObjectClasses(
         string $controllerClass,
         string $method
@@ -44,7 +61,10 @@ class ControllerMethodAnalyzer
                 continue;
             }
 
-            $classes[$parameter->getName()] = $type->getName();
+            $classes[$parameter->getName()] = [
+                'class' => $type->getName(),
+                'type' => 'object',
+            ];
         }
 
         return $classes;
@@ -53,7 +73,8 @@ class ControllerMethodAnalyzer
     private function getLocalVariableClasses(
         string $controllerClass,
         string $method
-    ): array {
+    ): array
+    {
         $reflectionMethod = new ReflectionMethod(
             $controllerClass,
             $method
@@ -126,7 +147,18 @@ class ControllerMethodAnalyzer
                 continue;
             }
 
-            $classes[$assignment->var->name] = $className;
+            $resultType = $this->getExpressionResultType(
+                $assignment->expr
+            );
+
+            if ($resultType === null) {
+                continue;
+            }
+
+            $classes[$assignment->var->name] = [
+                'class' => $className,
+                'type' => $resultType,
+            ];
         }
 
         return $classes;
@@ -147,6 +179,46 @@ class ControllerMethodAnalyzer
             return $this->getRootClassFromExpression(
                 $expr->var
             );
+        }
+
+        return null;
+    }
+
+    private function getExpressionResultType(
+        Node\Expr $expr
+    ): ?string {
+        $method = $this->getLastCalledMethod($expr);
+
+        if ($method === null) {
+            return null;
+        }
+
+        if (in_array($method, self::OBJECT_RETURNING_METHODS, true)) {
+            return 'object';
+        }
+
+        if (in_array($method, self::COLLECTION_RETURNING_METHODS, true)) {
+            return 'collection';
+        }
+
+        return null;
+    }
+
+    private function getLastCalledMethod(
+        Node\Expr $expr
+    ): ?string {
+        if (
+            $expr instanceof Node\Expr\MethodCall
+            && $expr->name instanceof Node\Identifier
+        ) {
+            return $expr->name->toString();
+        }
+
+        if (
+            $expr instanceof Node\Expr\StaticCall
+            && $expr->name instanceof Node\Identifier
+        ) {
+            return $expr->name->toString();
         }
 
         return null;
