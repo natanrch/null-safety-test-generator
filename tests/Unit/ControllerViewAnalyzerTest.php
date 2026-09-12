@@ -40,4 +40,21 @@ class ControllerViewAnalyzerTest extends TestCase
             ],
         ], $result);
     }
+
+    public function test_it_ignores_analyzed_variables_not_passed_to_the_view(): void
+    {
+        $analyzer = new ControllerViewAnalyzer(
+            new ControllerMethodAnalyzer()
+        );
+
+        $result = $analyzer->analyze(
+            FakeControllerWithView::class,
+            'show'
+        );
+
+        $this->assertArrayNotHasKey(
+            'unusedObject',
+            $result['variables']
+        );
+    }
 }

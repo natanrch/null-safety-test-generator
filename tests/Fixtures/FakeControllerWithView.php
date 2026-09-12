@@ -12,6 +12,8 @@ class FakeControllerWithView
             ->where('active', true)
             ->get();
 
+        $unusedObject = AnotherFakeObject::find(2);
+
         return view('fixtures.objects.show', [
             'object' => $object,
             'otherObject' => $otherObject,
