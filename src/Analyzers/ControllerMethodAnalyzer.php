@@ -71,9 +71,6 @@ class ControllerMethodAnalyzer
             return [];
         }
 
-        /*
-         * 1. Transforma o código PHP em AST.
-         */
         $parser = (new ParserFactory())
             ->createForNewestSupportedVersion();
 
@@ -83,19 +80,6 @@ class ControllerMethodAnalyzer
             return [];
         }
 
-        /*
-         * 2. Resolve namespaces e imports.
-         *
-         * Exemplo:
-         *
-         * use App\Models\Proposicao;
-         *
-         * $proposicao = Proposicao::find(1);
-         *
-         * Depois do NameResolver:
-         *
-         * App\Models\Proposicao
-         */
         $traverser = new NodeTraverser();
 
         $traverser->addVisitor(
@@ -104,9 +88,6 @@ class ControllerMethodAnalyzer
 
         $ast = $traverser->traverse($ast);
 
-        /*
-         * 3. Procura o método que estamos analisando.
-         */
         $nodeFinder = new NodeFinder();
 
         $classMethod = $nodeFinder->findFirst(
@@ -121,11 +102,6 @@ class ControllerMethodAnalyzer
             return [];
         }
 
-        /*
-         * 4. Procura atribuições:
-         *
-         * $variavel = algumaCoisa;
-         */
         $assignments = $nodeFinder->findInstanceOf(
             $classMethod->stmts ?? [],
             Node\Expr\Assign::class
@@ -134,16 +110,6 @@ class ControllerMethodAnalyzer
         $classes = [];
 
         foreach ($assignments as $assignment) {
-
-            /*
-             * Queremos apenas variáveis simples:
-             *
-             * $proposicao = ...
-             *
-             * e não, por enquanto:
-             *
-             * $this->proposicao = ...
-             */
             if (! $assignment->var instanceof Node\Expr\Variable) {
                 continue;
             }
@@ -152,32 +118,37 @@ class ControllerMethodAnalyzer
                 continue;
             }
 
-            /*
-             * Por enquanto reconhecemos chamadas estáticas:
-             *
-             * Proposicao::find(...)
-             * Proposicao::first()
-             * Proposicao::create(...)
-             */
-            if (! $assignment->expr instanceof Node\Expr\StaticCall) {
+            $className = $this->getRootClassFromExpression(
+                $assignment->expr
+            );
+
+            if ($className === null) {
                 continue;
             }
 
-            if (! $assignment->expr->class instanceof Node\Name) {
-                continue;
-            }
-
-            $variableName = $assignment->var->name;
-
-            /*
-             * Como o NameResolver já percorreu a AST,
-             * aqui teremos o nome completo da classe.
-             */
-            $className = $assignment->expr->class->toString();
-
-            $classes[$variableName] = $className;
+            $classes[$assignment->var->name] = $className;
         }
 
         return $classes;
+    }
+
+    private function getRootClassFromExpression(
+        Node\Expr $expr
+    ): ?string {
+        if ($expr instanceof Node\Expr\StaticCall) {
+            if (! $expr->class instanceof Node\Name) {
+                return null;
+            }
+
+            return $expr->class->toString();
+        }
+
+        if ($expr instanceof Node\Expr\MethodCall) {
+            return $this->getRootClassFromExpression(
+                $expr->var
+            );
+        }
+
+        return null;
     }
 }

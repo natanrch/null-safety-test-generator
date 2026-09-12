@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Unit;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\AnotherFakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithChainedMethods;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use PHPUnit\Framework\TestCase;
 
@@ -56,6 +57,22 @@ class ControllerMethodAnalyzerTest extends TestCase
         $this->assertSame([
             'object' => FakeObject::class,
             'otherObject' => AnotherFakeObject::class,
+        ], $result);
+    }
+
+    public function test_it_identifies_objects_from_chained_static_and_instance_calls(): void
+    {
+        $analyzer = new ControllerMethodAnalyzer();
+
+        $result = $analyzer->getObjectClasses(
+            FakeControllerWithChainedMethods::class,
+            'show'
+        );
+
+        $this->assertSame([
+            'object' => FakeObject::class,
+            'firstObject' => AnotherFakeObject::class,
+            'secondObject' => AnotherFakeObject::class,
         ], $result);
     }
 }
