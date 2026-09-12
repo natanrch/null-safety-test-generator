@@ -1,0 +1,1 @@
+{{ $object->date->format('d/m/Y') }}
