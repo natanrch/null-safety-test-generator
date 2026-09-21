@@ -4,12 +4,14 @@ namespace Natan\NullSafetyTestGenerator\Services;
 
 use Natan\NullSafetyTestGenerator\Analyzers\BladeAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerViewAnalyzer;
+use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 
 class ViewAnalysisService
 {
     public function __construct(
         private ControllerViewAnalyzer $controllerViewAnalyzer,
-        private BladeAnalyzer $bladeAnalyzer
+        private BladeAnalyzer $bladeAnalyzer,
+        private EloquentAccessChainResolver $accessChainResolver
     ) {
     }
 
@@ -62,6 +64,12 @@ class ViewAnalysisService
             }
 
             $combinedAccess['accesses'] = $bladeAccess['accesses'] ?? [];
+            $combinedAccess['resolvedAccesses'] =
+                $this->accessChainResolver->resolve(
+                    $variable['class'],
+                    $combinedAccess['accesses']
+                );
+
             $combinedAccesses[] = $combinedAccess;
         }
 
