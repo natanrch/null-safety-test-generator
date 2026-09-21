@@ -52,6 +52,15 @@ class NullScenarioGeneratorTest extends TestCase
                 'rootClass' => FakePost::class,
                 'rootType' => 'object',
                 'path' => ['author'],
+                'resolvedPath' => [
+                    [
+                        'model' => FakePost::class,
+                        'property' => 'author',
+                        'kind' => 'relationship',
+                        'relation' => 'belongsTo',
+                        'relatedClass' => FakeAuthor::class,
+                    ],
+                ],
                 'target' => [
                     'model' => FakePost::class,
                     'property' => 'author',
@@ -66,6 +75,22 @@ class NullScenarioGeneratorTest extends TestCase
                 'rootClass' => FakePost::class,
                 'rootType' => 'object',
                 'path' => ['author', 'profile'],
+                'resolvedPath' => [
+                    [
+                        'model' => FakePost::class,
+                        'property' => 'author',
+                        'kind' => 'relationship',
+                        'relation' => 'belongsTo',
+                        'relatedClass' => FakeAuthor::class,
+                    ],
+                    [
+                        'model' => FakeAuthor::class,
+                        'property' => 'profile',
+                        'kind' => 'relationship',
+                        'relation' => 'hasOne',
+                        'relatedClass' => FakeProfile::class,
+                    ],
+                ],
                 'target' => [
                     'model' => FakeAuthor::class,
                     'property' => 'profile',
@@ -80,6 +105,27 @@ class NullScenarioGeneratorTest extends TestCase
                 'rootClass' => FakePost::class,
                 'rootType' => 'object',
                 'path' => ['author', 'profile', 'name'],
+                'resolvedPath' => [
+                    [
+                        'model' => FakePost::class,
+                        'property' => 'author',
+                        'kind' => 'relationship',
+                        'relation' => 'belongsTo',
+                        'relatedClass' => FakeAuthor::class,
+                    ],
+                    [
+                        'model' => FakeAuthor::class,
+                        'property' => 'profile',
+                        'kind' => 'relationship',
+                        'relation' => 'hasOne',
+                        'relatedClass' => FakeProfile::class,
+                    ],
+                    [
+                        'model' => FakeProfile::class,
+                        'property' => 'name',
+                        'kind' => 'attribute',
+                    ],
+                ],
                 'target' => [
                     'model' => FakeProfile::class,
                     'property' => 'name',
@@ -120,6 +166,15 @@ class NullScenarioGeneratorTest extends TestCase
                 'rootClass' => FakeAuthor::class,
                 'rootType' => 'object',
                 'path' => ['posts'],
+                'resolvedPath' => [
+                    [
+                        'model' => FakeAuthor::class,
+                        'property' => 'posts',
+                        'kind' => 'relationship',
+                        'relation' => 'hasMany',
+                        'relatedClass' => FakePost::class,
+                    ],
+                ],
                 'target' => [
                     'model' => FakeAuthor::class,
                     'property' => 'posts',
@@ -130,5 +185,57 @@ class NullScenarioGeneratorTest extends TestCase
                 'strategy' => 'empty_collection',
             ],
         ], $result);
+    }
+
+    public function test_it_preserves_the_resolved_relationship_path_for_factory_generation(): void
+    {
+        $generator = new NullScenarioGenerator();
+
+        $authorRelationship = [
+            'model' => FakePost::class,
+            'property' => 'author',
+            'kind' => 'relationship',
+            'relation' => 'belongsTo',
+            'relatedClass' => FakeAuthor::class,
+        ];
+
+        $profileRelationship = [
+            'model' => FakeAuthor::class,
+            'property' => 'profile',
+            'kind' => 'relationship',
+            'relation' => 'hasOne',
+            'relatedClass' => FakeProfile::class,
+        ];
+
+        $nameAttribute = [
+            'model' => FakeProfile::class,
+            'property' => 'name',
+            'kind' => 'attribute',
+        ];
+
+        $result = $generator->generate([
+            'view' => 'fixtures.posts.show',
+            'accesses' => [
+                [
+                    'root' => 'post',
+                    'class' => FakePost::class,
+                    'type' => 'object',
+                    'resolvedAccesses' => [
+                        $authorRelationship,
+                        $profileRelationship,
+                        $nameAttribute,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(
+            [
+                $authorRelationship,
+                $profileRelationship,
+                $nameAttribute,
+            ],
+            $result[2]['resolvedPath'] ?? null
+        );
     }
 }

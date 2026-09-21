@@ -24,6 +24,7 @@ class NullScenarioGenerator
             }
 
             $path = [];
+            $resolvedPath = [];
 
             foreach ($analyzedAccess['resolvedAccesses'] ?? [] as $target) {
                 $property = $target['property'] ?? null;
@@ -33,6 +34,7 @@ class NullScenarioGenerator
                 }
 
                 $path[] = $property;
+                $resolvedPath[] = $target;
                 $strategy = $this->getStrategy($target);
 
                 if ($strategy === null) {
@@ -55,6 +57,7 @@ class NullScenarioGenerator
                     'rootClass' => $analyzedAccess['class'],
                     'rootType' => $analyzedAccess['type'],
                     'path' => $path,
+                    'resolvedPath' => $resolvedPath,
                     'target' => $target,
                     'strategy' => $strategy,
                 ];

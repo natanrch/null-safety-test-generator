@@ -2,6 +2,7 @@
 
 namespace Natan\NullSafetyTestGenerator\Generators;
 
+use Illuminate\Support\Str;
 use Throwable;
 
 class FactoryTestGenerator
@@ -9,9 +10,10 @@ class FactoryTestGenerator
     public function generate(array $scenario): array
     {
         $modelClass = $scenario['rootClass'] ?? null;
+        $missingFactoryModel = $this->findModelWithoutFactory($scenario);
 
-        if (! is_string($modelClass) || ! $this->factoryExists($modelClass)) {
-            return $this->factoryNotFoundResult($modelClass);
+        if ($missingFactoryModel !== null) {
+            return $this->factoryNotFoundResult($missingFactoryModel);
         }
 
         $root = $scenario['root'] ?? null;
@@ -24,6 +26,55 @@ class FactoryTestGenerator
             ];
         }
 
+        $resolvedPath = $scenario['resolvedPath'] ?? [];
+        $strategy = $scenario['strategy'] ?? null;
+
+        if (
+            in_array(
+                $strategy,
+                ['missing_relationship', 'empty_collection'],
+                true
+            )
+        ) {
+            $code = $this->generateAbsentRelationshipCode(
+                $root,
+                $resolvedPath,
+                $strategy
+            );
+
+            if ($code === null) {
+                return $this->unsupportedRelationshipPathResult();
+            }
+
+            return [
+                'generated' => true,
+                'code' => $code,
+            ];
+        }
+
+        if ($strategy !== 'null_attribute') {
+            return [
+                'generated' => false,
+                'message' => 'The null scenario strategy is not supported; the test could not be generated.',
+            ];
+        }
+
+        if (count($resolvedPath) > 1) {
+            $code = $this->generateNestedAttributeCode(
+                $root,
+                $resolvedPath
+            );
+
+            if ($code === null) {
+                return $this->unsupportedRelationshipPathResult();
+            }
+
+            return [
+                'generated' => true,
+                'code' => $code,
+            ];
+        }
+
         return [
             'generated' => true,
             'code' => implode("\n", [
@@ -33,6 +84,193 @@ class FactoryTestGenerator
                 ']);',
             ]),
         ];
+    }
+
+    private function generateAbsentRelationshipCode(
+        string $root,
+        array $resolvedPath,
+        string $strategy
+    ): ?string {
+        $target = array_pop($resolvedPath);
+
+        if (
+            ! is_array($target)
+            || ($target['kind'] ?? null) !== 'relationship'
+            || ! isset(
+                $target['model'],
+                $target['property'],
+                $target['relation']
+            )
+            || ! is_string($target['model'])
+            || ! is_string($target['property'])
+            || ! is_string($target['relation'])
+        ) {
+            return null;
+        }
+
+        $toManyRelationships = [
+            'belongsToMany',
+            'hasMany',
+            'hasManyThrough',
+            'morphMany',
+            'morphToMany',
+            'morphedByMany',
+        ];
+
+        if (
+            $strategy === 'empty_collection'
+            && ! in_array(
+                $target['relation'],
+                $toManyRelationships,
+                true
+            )
+        ) {
+            return null;
+        }
+
+        $factoryExpression = '\\' . $target['model']
+            . '::factory()';
+
+        if (
+            $strategy === 'missing_relationship'
+            && $target['relation'] === 'belongsTo'
+        ) {
+            $foreignKey = Str::snake($target['property']) . '_id';
+            $factoryExpression .= '->state(['
+                . var_export($foreignKey, true)
+                . ' => null])';
+        }
+
+        foreach (array_reverse($resolvedPath) as $relationship) {
+            $factoryExpression = $this->wrapFactoryForRelationship(
+                $factoryExpression,
+                $relationship
+            );
+
+            if ($factoryExpression === null) {
+                return null;
+            }
+        }
+
+        return '$' . $root . ' = ' . $factoryExpression . '->create();';
+    }
+
+    private function generateNestedAttributeCode(
+        string $root,
+        array $resolvedPath
+    ): ?string {
+        $target = array_pop($resolvedPath);
+
+        if (
+            ! is_array($target)
+            || ($target['kind'] ?? null) !== 'attribute'
+            || ! isset($target['model'], $target['property'])
+            || ! is_string($target['model'])
+            || ! is_string($target['property'])
+        ) {
+            return null;
+        }
+
+        $factoryExpression = '\\' . $target['model']
+            . '::factory()->state(['
+            . var_export($target['property'], true)
+            . ' => null])';
+
+        foreach (array_reverse($resolvedPath) as $relationship) {
+            $factoryExpression = $this->wrapFactoryForRelationship(
+                $factoryExpression,
+                $relationship
+            );
+
+            if ($factoryExpression === null) {
+                return null;
+            }
+        }
+
+        return '$' . $root . ' = ' . $factoryExpression . '->create();';
+    }
+
+    private function wrapFactoryForRelationship(
+        string $relatedFactory,
+        array $relationship
+    ): ?string {
+        if (
+            ! isset(
+                $relationship['model'],
+                $relationship['property'],
+                $relationship['relation']
+            )
+            || ! is_string($relationship['model'])
+            || ! is_string($relationship['property'])
+            || ! is_string($relationship['relation'])
+        ) {
+            return null;
+        }
+
+        $parentFactory = '\\' . $relationship['model']
+            . '::factory()';
+        $relationshipName = var_export(
+            $relationship['property'],
+            true
+        );
+
+        if ($relationship['relation'] === 'belongsTo') {
+            return $parentFactory
+                . '->for(' . $relatedFactory
+                . ', ' . $relationshipName . ')';
+        }
+
+        if (
+            in_array(
+                $relationship['relation'],
+                ['hasOne', 'hasMany', 'morphOne', 'morphMany'],
+                true
+            )
+        ) {
+            return $parentFactory
+                . '->has(' . $relatedFactory
+                . ', ' . $relationshipName . ')';
+        }
+
+        return null;
+    }
+
+    private function unsupportedRelationshipPathResult(): array
+    {
+        return [
+            'generated' => false,
+            'message' => 'The relationship path is not supported; the test could not be generated.',
+        ];
+    }
+
+    private function findModelWithoutFactory(array $scenario): ?string
+    {
+        $modelClasses = [];
+        $rootClass = $scenario['rootClass'] ?? null;
+
+        if (! is_string($rootClass)) {
+            return 'unknown';
+        }
+
+        $modelClasses[$rootClass] = true;
+
+        foreach ($scenario['resolvedPath'] ?? [] as $resolvedAccess) {
+            foreach (['model', 'relatedClass'] as $classKey) {
+                $className = $resolvedAccess[$classKey] ?? null;
+
+                if (is_string($className)) {
+                    $modelClasses[$className] = true;
+                }
+            }
+        }
+
+        foreach (array_keys($modelClasses) as $modelClass) {
+            if (! $this->factoryExists($modelClass)) {
+                return $modelClass;
+            }
+        }
+
+        return null;
     }
 
     private function factoryExists(string $modelClass): bool
