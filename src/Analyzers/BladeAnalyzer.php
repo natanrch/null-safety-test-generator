@@ -69,7 +69,8 @@ class BladeAnalyzer
         array $statements,
         array $aliases,
         array &$results
-    ): void {
+    ): void 
+    {
         foreach ($statements as $statement) {
             if ($statement instanceof Node\Stmt\Echo_) {
                 foreach ($statement->exprs as $expression) {

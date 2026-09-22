@@ -4,12 +4,20 @@ namespace Natan\NullSafetyTestGenerator\Tests;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Natan\NullSafetyTestGenerator\NullSafetyServiceProvider;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
 {
     use RefreshDatabase;
+
+    protected function getPackageProviders($app): array
+    {
+        return [
+            NullSafetyServiceProvider::class,
+        ];
+    }
 
     protected function defineEnvironment($app): void
     {
