@@ -21,13 +21,11 @@ class NullSafetyTestGenerationService
 
     public function generate(
         string $controllerClass,
-        string $controllerMethod,
-        string $viewPath
+        string $controllerMethod
     ): array {
         $viewAnalysis = $this->viewAnalysisService->analyze(
             $controllerClass,
-            $controllerMethod,
-            $viewPath
+            $controllerMethod
         );
 
         if ($viewAnalysis === []) {

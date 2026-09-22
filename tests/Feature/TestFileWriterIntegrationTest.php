@@ -18,10 +18,11 @@ use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\ViewAnalysisService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
+use Natan\NullSafetyTestGenerator\Writers\GeneratedTestFileWriter;
 
-class NullSafetyTestGenerationServiceTest extends TestCase
+class TestFileWriterIntegrationTest extends TestCase
 {
-    public function test_it_orchestrates_the_complete_test_generation_flow(): void
+    public function test_it_writes_the_generated_test_file(): void
     {
         $factoryTestGenerator = new FactoryTestGenerator();
 
@@ -46,45 +47,29 @@ class NullSafetyTestGenerationServiceTest extends TestCase
             new FeatureTestFileGenerator()
         );
 
-        $result = $service->generate(
+        $generatedFile = $service->generate(
             PostController::class,
             'show'
         );
 
-        $this->assertTrue($result['generated']);
+        $result = (new GeneratedTestFileWriter())->write(
+            $generatedFile,
+            __DIR__ . '/Generated',
+            overwrite: true
+        );
+
+        $expectedPath = __DIR__
+            . '/Generated/PostsShowNullSafetyTest.php';
+
+        $this->assertSame([
+            'written' => true,
+            'path' => $expectedPath,
+        ], $result);
+
+        $this->assertFileExists($expectedPath);
         $this->assertSame(
-            'PostsShowNullSafetyTest.php',
-            $result['fileName']
-        );
-
-        $this->assertStringContainsString(
-            'class PostsShowNullSafetyTest extends TestCase',
-            $result['code']
-        );
-
-        $this->assertStringContainsString(
-            'test_posts_show_does_not_fail_when_post_title_is_null',
-            $result['code']
-        );
-
-        $this->assertStringContainsString(
-            'test_posts_show_does_not_fail_when_post_author_is_null',
-            $result['code']
-        );
-
-        $this->assertStringContainsString(
-            'test_posts_show_does_not_fail_when_post_author_profile_is_null',
-            $result['code']
-        );
-
-        $this->assertStringContainsString(
-            'test_posts_show_does_not_fail_when_post_author_profile_name_is_null',
-            $result['code']
-        );
-
-        $this->assertSame(
-            4,
-            substr_count($result['code'], 'public function test_')
+            $generatedFile['code'] . "\n",
+            file_get_contents($expectedPath)
         );
     }
 }

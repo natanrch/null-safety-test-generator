@@ -5,20 +5,22 @@ namespace Natan\NullSafetyTestGenerator\Services;
 use Natan\NullSafetyTestGenerator\Analyzers\BladeAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerViewAnalyzer;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
+use Natan\NullSafetyTestGenerator\Resolvers\ViewPathResolver;
 
 class ViewAnalysisService
 {
     public function __construct(
         private ControllerViewAnalyzer $controllerViewAnalyzer,
         private BladeAnalyzer $bladeAnalyzer,
-        private EloquentAccessChainResolver $accessChainResolver
+        private EloquentAccessChainResolver $accessChainResolver,
+        private ?ViewPathResolver $viewPathResolver = null
     ) {
     }
 
     public function analyze(
         string $controllerClass,
         string $method,
-        string $viewPath
+        ?string $viewPath = null
     ): array 
     {
         $controllerAnalysis = $this->controllerViewAnalyzer->analyze(
@@ -31,6 +33,16 @@ class ViewAnalysisService
             || ! isset($controllerAnalysis['variables'])
             || ! is_array($controllerAnalysis['variables'])
         ) {
+            return [];
+        }
+
+        if ($viewPath === null) {
+            $viewPath = $this->viewPathResolver?->resolve(
+                $controllerAnalysis['view']
+            );
+        }
+
+        if ($viewPath === null) {
             return [];
         }
 
