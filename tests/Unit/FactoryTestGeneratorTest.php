@@ -46,6 +46,20 @@ class FactoryTestGeneratorTest extends TestCase
         ], $result);
     }
 
+    public function test_it_returns_a_message_when_the_model_class_is_invalid(): void
+    {
+        $generator = new FactoryTestGenerator();
+
+        $result = $generator->generate(
+            $this->attributeScenario('InvalidModelClass')
+        );
+
+        $this->assertSame([
+            'generated' => false,
+            'message' => 'The model class InvalidModelClass is invalid; the test could not be generated.',
+        ], $result);
+    }
+
     public function test_it_accepts_a_resolved_path_when_all_model_factories_exist(): void
     {
         $generator = new FactoryTestGenerator();

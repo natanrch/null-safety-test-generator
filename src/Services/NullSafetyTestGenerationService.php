@@ -56,6 +56,7 @@ class NullSafetyTestGenerationService
         }
 
         $testMethods = [];
+        $warnings = [];
 
         foreach ($scenarios as $scenario) {
             $methodResult = $this->featureTestGenerator->generate(
@@ -64,22 +65,39 @@ class NullSafetyTestGenerationService
             );
 
             if (($methodResult['generated'] ?? false) !== true) {
-                return $methodResult;
+                $warnings[] = $methodResult['message']
+                    ?? 'A test scenario could not be generated.';
+
+                continue;
             }
 
             if (! is_string($methodResult['code'] ?? null)) {
-                return $this->failure(
-                    'A generated test method is invalid; the test file was not generated.'
-                );
+                $warnings[] = 'A generated test method is invalid and was skipped.';
+
+                continue;
             }
 
             $testMethods[] = $methodResult['code'];
         }
 
-        return $this->featureTestFileGenerator->generate(
+        if ($testMethods === []) {
+            return [
+                'generated' => false,
+                'message' => 'No valid test methods were generated; the test file was not generated.',
+                'warnings' => $warnings,
+            ];
+        }
+
+        $fileResult = $this->featureTestFileGenerator->generate(
             $this->generateClassName($route['name']),
             $testMethods
         );
+
+        if ($warnings !== []) {
+            $fileResult['warnings'] = $warnings;
+        }
+
+        return $fileResult;
     }
 
     private function generateClassName(string $routeName): string

@@ -10,6 +10,18 @@ class FactoryTestGenerator
     public function generate(array $scenario): array
     {
         $modelClass = $scenario['rootClass'] ?? null;
+        $invalidModelClass = $this->findInvalidModelClass($scenario);
+
+        if ($invalidModelClass !== null) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'The model class %s is invalid; the test could not be generated.',
+                    $invalidModelClass
+                ),
+            ];
+        }
+
         $missingFactoryModel = $this->findModelWithoutFactory($scenario);
 
         if ($missingFactoryModel !== null) {
@@ -245,14 +257,35 @@ class FactoryTestGenerator
 
     private function findModelWithoutFactory(array $scenario): ?string
     {
-        $modelClasses = [];
+        foreach ($this->getModelClasses($scenario) as $modelClass) {
+            if (! $this->factoryExists($modelClass)) {
+                return $modelClass;
+            }
+        }
+
+        return null;
+    }
+
+    private function findInvalidModelClass(array $scenario): ?string
+    {
+        foreach ($this->getModelClasses($scenario) as $modelClass) {
+            if (! class_exists($modelClass)) {
+                return $modelClass;
+            }
+        }
+
+        return null;
+    }
+
+    private function getModelClasses(array $scenario): array
+    {
         $rootClass = $scenario['rootClass'] ?? null;
 
         if (! is_string($rootClass)) {
-            return 'unknown';
+            return ['unknown'];
         }
 
-        $modelClasses[$rootClass] = true;
+        $modelClasses = [$rootClass => true];
 
         foreach ($scenario['resolvedPath'] ?? [] as $resolvedAccess) {
             foreach (['model', 'relatedClass'] as $classKey) {
@@ -264,13 +297,7 @@ class FactoryTestGenerator
             }
         }
 
-        foreach (array_keys($modelClasses) as $modelClass) {
-            if (! $this->factoryExists($modelClass)) {
-                return $modelClass;
-            }
-        }
-
-        return null;
+        return array_keys($modelClasses);
     }
 
     private function factoryExists(string $modelClass): bool
