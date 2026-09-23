@@ -40,6 +40,33 @@ class RouteScanner
         return null;
     }
 
+    public function allGetControllerRoutes(): array
+    {
+        $routes = [];
+
+        foreach ($this->router->getRoutes() as $route) {
+            if (! in_array('GET', $route->methods(), true)) {
+                continue;
+            }
+
+            $controllerAction = $this->getControllerAction($route);
+
+            if ($controllerAction === null) {
+                continue;
+            }
+
+            $routes[] = [
+                'name' => $route->getName(),
+                'method' => 'GET',
+                'parameters' => $this->getParameters($route),
+                'controller' => $controllerAction['controller'],
+                'controllerMethod' => $controllerAction['method'],
+            ];
+        }
+
+        return $routes;
+    }
+
     private function getActionName(Route $route): string
     {
         return ltrim($route->getActionName(), '\\');
@@ -56,6 +83,27 @@ class RouteScanner
         }
 
         return null;
+    }
+
+    private function getControllerAction(Route $route): ?array
+    {
+        $action = $route->getAction('controller');
+
+        if (! is_string($action) || ! str_contains($action, '@')) {
+            return null;
+        }
+
+        [$controller, $method] = explode('@', $action, 2);
+        $controller = ltrim($controller, '\\');
+
+        if ($controller === '' || $method === '') {
+            return null;
+        }
+
+        return [
+            'controller' => $controller,
+            'method' => $method,
+        ];
     }
 
     private function getParameters(Route $route): array

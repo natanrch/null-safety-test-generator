@@ -28,4 +28,31 @@ class RouteScannerTest extends TestCase
             ],
         ], $result);
     }
+
+    public function test_it_lists_only_get_routes_backed_by_controller_methods(): void
+    {
+        $router = $this->app->make(Router::class);
+
+        $router->post(
+            '/posts',
+            [PostController::class, 'show']
+        )->name('posts.store');
+
+        $router->get('/health', fn () => ['status' => 'ok'])
+            ->name('health');
+
+        $scanner = new RouteScanner($router);
+
+        $this->assertSame([
+            [
+                'name' => 'posts.show',
+                'method' => 'GET',
+                'parameters' => [
+                    'post' => 'post',
+                ],
+                'controller' => PostController::class,
+                'controllerMethod' => 'show',
+            ],
+        ], $scanner->allGetControllerRoutes());
+    }
 }
