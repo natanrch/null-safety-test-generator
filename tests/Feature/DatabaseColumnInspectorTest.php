@@ -6,6 +6,7 @@ use Natan\NullSafetyTestGenerator\Generators\FactoryTestGenerator;
 use Natan\NullSafetyTestGenerator\Inspectors\DatabaseColumnInspector;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\PostWithoutFactory;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Profile;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
@@ -99,17 +100,62 @@ class DatabaseColumnInspectorTest extends TestCase
         ], $result);
     }
 
-    private function scenarioFor(string $property): array
+    public function test_it_uses_first_when_a_model_without_factory_has_a_record(): void
     {
+        Post::factory()->create([
+            'title' => 'Existing title',
+        ]);
+
+        $result = (new FactoryTestGenerator(
+            new DatabaseColumnInspector()
+        ))->generate($this->scenarioFor(
+            'title',
+            PostWithoutFactory::class
+        ));
+
+        $this->assertSame([
+            'generated' => true,
+            'code' => implode("\n", [
+                '$post = \\' . PostWithoutFactory::class
+                    . '::query()->first();',
+                '$post->forceFill([',
+                "    'title' => null,",
+                '])->save();',
+            ]),
+        ], $result);
+    }
+
+    public function test_it_reports_when_a_model_has_neither_factory_nor_record(): void
+    {
+        $result = (new FactoryTestGenerator(
+            new DatabaseColumnInspector()
+        ))->generate($this->scenarioFor(
+            'title',
+            PostWithoutFactory::class
+        ));
+
+        $this->assertSame([
+            'generated' => false,
+            'message' => sprintf(
+                'Factory for model %s does not exist and no database record was found; the test could not be generated.',
+                PostWithoutFactory::class
+            ),
+        ], $result);
+    }
+
+    private function scenarioFor(
+        string $property,
+        string $modelClass = Post::class
+    ): array {
         $target = [
-            'model' => Post::class,
+            'model' => $modelClass,
             'property' => $property,
             'kind' => 'attribute',
         ];
 
         return [
             'root' => 'post',
-            'rootClass' => Post::class,
+            'rootClass' => $modelClass,
             'rootType' => 'object',
             'path' => [$property],
             'resolvedPath' => [$target],

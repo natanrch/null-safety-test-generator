@@ -40,7 +40,7 @@ class FactoryTestGeneratorTest extends TestCase
         $this->assertSame([
             'generated' => false,
             'message' => sprintf(
-                'Factory for model %s does not exist; the test could not be generated.',
+                'Factory for model %s does not exist and no database record was found; the test could not be generated.',
                 FakeModelWithoutFactory::class
             ),
         ], $result);
@@ -90,7 +90,7 @@ class FactoryTestGeneratorTest extends TestCase
         $this->assertSame([
             'generated' => false,
             'message' => sprintf(
-                'Factory for model %s does not exist; the test could not be generated.',
+                'Factory for model %s does not exist and no database record was found; the test could not be generated.',
                 FakeModelWithoutFactory::class
             ),
         ], $result);
