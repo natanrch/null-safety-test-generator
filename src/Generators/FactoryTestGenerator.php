@@ -4,10 +4,19 @@ namespace Natan\NullSafetyTestGenerator\Generators;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Natan\NullSafetyTestGenerator\Inspectors\DatabaseColumnInspector;
 use Throwable;
 
 class FactoryTestGenerator
 {
+    private DatabaseColumnInspector $columnInspector;
+
+    public function __construct(?DatabaseColumnInspector $columnInspector = null)
+    {
+        $this->columnInspector = $columnInspector
+            ?? new DatabaseColumnInspector();
+    }
+
     public function generateRouteParameter(
         string $variable,
         string $modelClass
@@ -76,6 +85,23 @@ class FactoryTestGenerator
 
         $resolvedPath = $scenario['resolvedPath'] ?? [];
         $strategy = $scenario['strategy'] ?? null;
+
+        if (
+            $strategy === 'null_attribute'
+            || (
+                $strategy === 'missing_relationship'
+                && ($scenario['target']['relation'] ?? null) === 'belongsTo'
+            )
+        ) {
+            $columnResult = $this->inspectNullableTarget(
+                $scenario,
+                $strategy
+            );
+
+            if ($columnResult !== null) {
+                return $columnResult;
+            }
+        }
 
         if (
             in_array(
@@ -288,6 +314,44 @@ class FactoryTestGenerator
         return [
             'generated' => false,
             'message' => 'The relationship path is not supported; the test could not be generated.',
+        ];
+    }
+
+    private function inspectNullableTarget(
+        array $scenario,
+        string $strategy
+    ): ?array {
+        $modelClass = $scenario['target']['model'] ?? null;
+        $property = $scenario['target']['property'] ?? null;
+
+        if (! is_string($modelClass) || ! is_string($property)) {
+            return null;
+        }
+
+        $columnName = $strategy === 'missing_relationship'
+            ? Str::snake($property) . '_id'
+            : $property;
+
+        $inspection = $this->columnInspector->inspect(
+            $modelClass,
+            $columnName
+        );
+
+        if (
+            ($inspection['inspected'] ?? false) !== true
+            || ($inspection['exists'] ?? false) !== true
+            || ($inspection['nullable'] ?? null) !== false
+        ) {
+            return null;
+        }
+
+        return [
+            'generated' => false,
+            'message' => sprintf(
+                'Column %s.%s does not accept null; the scenario was skipped.',
+                $inspection['table'],
+                $inspection['column']
+            ),
         ];
     }
 
