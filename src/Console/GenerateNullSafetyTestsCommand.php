@@ -3,6 +3,7 @@
 namespace Natan\NullSafetyTestGenerator\Console;
 
 use Illuminate\Console\Command;
+use Natan\NullSafetyTestGenerator\Services\BatchNullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Writers\GeneratedTestFileWriter;
 use Throwable;
@@ -10,6 +11,7 @@ use Throwable;
 class GenerateNullSafetyTestsCommand extends Command
 {
     protected $signature = 'null-safety:generate
+        {--all : Generate tests for all GET controller routes that return views}
         {--controller= : Fully qualified controller class}
         {--method=show : Controller method}
         {--output= : Directory where the generated test will be written}
@@ -19,8 +21,36 @@ class GenerateNullSafetyTestsCommand extends Command
 
     public function handle(
         NullSafetyTestGenerationService $generator,
+        BatchNullSafetyTestGenerationService $batchGenerator,
         GeneratedTestFileWriter $writer
     ): int {
+        if ((bool) $this->option('all')) {
+            if ($this->option('controller') !== null) {
+                $this->error(
+                    'The --all and --controller options cannot be used together.'
+                );
+
+                return self::FAILURE;
+            }
+
+            try {
+                $generatedFile = $batchGenerator->generate();
+            } catch (Throwable $exception) {
+                $this->error(sprintf(
+                    'The test batch could not be generated: %s',
+                    $exception->getMessage()
+                ));
+
+                return self::FAILURE;
+            }
+
+            return $this->writeGeneratedFile(
+                $generatedFile,
+                $writer,
+                true
+            );
+        }
+
         $controller = $this->option('controller');
         $method = $this->option('method');
 
@@ -68,6 +98,14 @@ class GenerateNullSafetyTestsCommand extends Command
             return self::FAILURE;
         }
 
+        return $this->writeGeneratedFile($generatedFile, $writer);
+    }
+
+    private function writeGeneratedFile(
+        array $generatedFile,
+        GeneratedTestFileWriter $writer,
+        bool $batch = false
+    ): int {
         $this->displayWarnings($generatedFile['warnings'] ?? []);
 
         if (($generatedFile['generated'] ?? false) !== true) {
@@ -103,6 +141,14 @@ class GenerateNullSafetyTestsCommand extends Command
             'Null-safety test generated: %s',
             $writeResult['path']
         ));
+
+        if ($batch) {
+            $this->info(sprintf(
+                'Analyzed routes: %d; generated tests: %d.',
+                $generatedFile['analyzedRoutes'] ?? 0,
+                $generatedFile['generatedTests'] ?? 0
+            ));
+        }
 
         return self::SUCCESS;
     }

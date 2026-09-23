@@ -23,6 +23,32 @@ class NullSafetyTestGenerationService
         string $controllerClass,
         string $controllerMethod
     ): array {
+        $methodsResult = $this->generateMethods(
+            $controllerClass,
+            $controllerMethod
+        );
+
+        if (($methodsResult['generated'] ?? false) !== true) {
+            return $methodsResult;
+        }
+
+        $fileResult = $this->featureTestFileGenerator->generate(
+            $this->generateClassName($methodsResult['route']['name']),
+            $methodsResult['testMethods']
+        );
+
+        if (($methodsResult['warnings'] ?? []) !== []) {
+            $fileResult['warnings'] = $methodsResult['warnings'];
+        }
+
+        return $fileResult;
+    }
+
+    public function generateMethods(
+        string $controllerClass,
+        string $controllerMethod,
+        ?array $route = null
+    ): array {
         $viewAnalysis = $this->viewAnalysisService->analyze(
             $controllerClass,
             $controllerMethod
@@ -30,7 +56,8 @@ class NullSafetyTestGenerationService
 
         if ($viewAnalysis === []) {
             return $this->failure(
-                'The controller view could not be analyzed; the test file was not generated.'
+                'The controller view could not be analyzed; no tests were generated.',
+                'no_view'
             );
         }
 
@@ -40,18 +67,20 @@ class NullSafetyTestGenerationService
 
         if ($scenarios === []) {
             return $this->failure(
-                'No null scenarios were found; the test file was not generated.'
+                'No null scenarios were found; no tests were generated.',
+                'no_scenarios'
             );
         }
 
-        $route = $this->routeScanner->find(
+        $route ??= $this->routeScanner->find(
             $controllerClass,
             $controllerMethod
         );
 
         if ($route === null || ! is_string($route['name'] ?? null)) {
             return $this->failure(
-                'No named route was found; the test file was not generated.'
+                'No named route was found; no tests were generated.',
+                'no_named_route'
             );
         }
 
@@ -83,21 +112,18 @@ class NullSafetyTestGenerationService
         if ($testMethods === []) {
             return [
                 'generated' => false,
-                'message' => 'No valid test methods were generated; the test file was not generated.',
+                'message' => 'No valid test methods were generated.',
                 'warnings' => $warnings,
+                'reason' => 'no_valid_methods',
             ];
         }
 
-        $fileResult = $this->featureTestFileGenerator->generate(
-            $this->generateClassName($route['name']),
-            $testMethods
-        );
-
-        if ($warnings !== []) {
-            $fileResult['warnings'] = $warnings;
-        }
-
-        return $fileResult;
+        return [
+            'generated' => true,
+            'testMethods' => $testMethods,
+            'route' => $route,
+            'warnings' => $warnings,
+        ];
     }
 
     private function generateClassName(string $routeName): string
@@ -112,11 +138,17 @@ class NullSafetyTestGenerationService
             . 'NullSafetyTest';
     }
 
-    private function failure(string $message): array
+    private function failure(string $message, ?string $reason = null): array
     {
-        return [
+        $result = [
             'generated' => false,
             'message' => $message,
         ];
+
+        if ($reason !== null) {
+            $result['reason'] = $reason;
+        }
+
+        return $result;
     }
 }
