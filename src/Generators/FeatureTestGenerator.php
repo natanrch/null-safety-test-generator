@@ -31,8 +31,22 @@ class FeatureTestGenerator
             return $factoryResult;
         }
 
+        $routeFactoryResult = $this->generateRouteParameterFactories(
+            $route,
+            $scenario['root']
+        );
+
+        if (($routeFactoryResult['generated'] ?? false) !== true) {
+            return $routeFactoryResult;
+        }
+
         $methodName = $this->generateMethodName($scenario, $route);
-        $factoryCode = $this->indent($factoryResult['code'], 4);
+        $factoryBlocks = $routeFactoryResult['code'];
+        $factoryBlocks[] = $factoryResult['code'];
+        $factoryCode = $this->indent(
+            implode("\n\n", $factoryBlocks),
+            4
+        );
         $routeCall = $this->generateRouteCall($route);
 
         $code = implode("\n", [
@@ -84,6 +98,43 @@ class FeatureTestGenerator
         }
 
         return null;
+    }
+
+    private function generateRouteParameterFactories(
+        array $route,
+        string $scenarioRoot
+    ): array {
+        $generatedCode = [];
+
+        foreach ($route['parameterModels'] ?? [] as $parameter) {
+            $variable = $parameter['variable'] ?? null;
+            $modelClass = $parameter['class'] ?? null;
+
+            if (! is_string($variable) || ! is_string($modelClass)) {
+                return [
+                    'generated' => false,
+                    'message' => 'A route parameter model is invalid; the feature test could not be generated.',
+                ];
+            }
+
+            if ($variable === $scenarioRoot) {
+                continue;
+            }
+
+            $factory = $this->factoryTestGenerator
+                ->generateRouteParameter($variable, $modelClass);
+
+            if (($factory['generated'] ?? false) !== true) {
+                return $factory;
+            }
+
+            $generatedCode[] = $factory['code'];
+        }
+
+        return [
+            'generated' => true,
+            'code' => $generatedCode,
+        ];
     }
 
     private function generateMethodName(

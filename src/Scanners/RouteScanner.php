@@ -4,12 +4,15 @@ namespace Natan\NullSafetyTestGenerator\Scanners;
 
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
+use Natan\NullSafetyTestGenerator\Resolvers\RouteParameterResolver;
 
 class RouteScanner
 {
     public function __construct(
-        private Router $router
+        private Router $router,
+        private ?RouteParameterResolver $routeParameterResolver = null
     ) {
+        $this->routeParameterResolver ??= new RouteParameterResolver();
     }
 
     public function find(
@@ -34,6 +37,11 @@ class RouteScanner
                 'name' => $route->getName(),
                 'method' => $httpMethod,
                 'parameters' => $this->getParameters($route),
+                'parameterModels' => $this->resolveParameterModels(
+                    $route,
+                    $controllerClass,
+                    $controllerMethod
+                ),
             ];
         }
 
@@ -61,6 +69,11 @@ class RouteScanner
                 'parameters' => $this->getParameters($route),
                 'controller' => $controllerAction['controller'],
                 'controllerMethod' => $controllerAction['method'],
+                'parameterModels' => $this->resolveParameterModels(
+                    $route,
+                    $controllerAction['controller'],
+                    $controllerAction['method']
+                ),
             ];
         }
 
@@ -115,5 +128,17 @@ class RouteScanner
         }
 
         return $parameters;
+    }
+
+    private function resolveParameterModels(
+        Route $route,
+        string $controllerClass,
+        string $controllerMethod
+    ): array {
+        return $this->routeParameterResolver->resolve(
+            $controllerClass,
+            $controllerMethod,
+            $route->parameterNames()
+        );
     }
 }

@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Feature;
 use Illuminate\Routing\Router;
 use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class RouteScannerTest extends TestCase
@@ -25,6 +26,13 @@ class RouteScannerTest extends TestCase
             'method' => 'GET',
             'parameters' => [
                 'post' => 'post',
+            ],
+            'parameterModels' => [
+                'post' => [
+                    'variable' => 'post',
+                    'class' => Post::class,
+                    'type' => 'model',
+                ],
             ],
         ], $result);
     }
@@ -52,6 +60,13 @@ class RouteScannerTest extends TestCase
                 ],
                 'controller' => PostController::class,
                 'controllerMethod' => 'show',
+                'parameterModels' => [
+                    'post' => [
+                        'variable' => 'post',
+                        'class' => Post::class,
+                        'type' => 'model',
+                    ],
+                ],
             ],
         ], $scanner->allGetControllerRoutes());
     }

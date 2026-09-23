@@ -2,11 +2,47 @@
 
 namespace Natan\NullSafetyTestGenerator\Generators;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Throwable;
 
 class FactoryTestGenerator
 {
+    public function generateRouteParameter(
+        string $variable,
+        string $modelClass
+    ): array {
+        if (
+            ! class_exists($modelClass)
+            || ! is_subclass_of($modelClass, Model::class)
+        ) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'The route parameter model class %s is invalid; the test could not be generated.',
+                    $modelClass
+                ),
+            ];
+        }
+
+        if (! $this->factoryExists($modelClass)) {
+            return $this->factoryNotFoundResult($modelClass);
+        }
+
+        if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) !== 1) {
+            return [
+                'generated' => false,
+                'message' => 'The route parameter variable is invalid; the test could not be generated.',
+            ];
+        }
+
+        return [
+            'generated' => true,
+            'code' => '$' . $variable . ' = \\' . $modelClass
+                . '::factory()->create();',
+        ];
+    }
+
     public function generate(array $scenario): array
     {
         $modelClass = $scenario['rootClass'] ?? null;
