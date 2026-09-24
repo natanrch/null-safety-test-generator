@@ -46,7 +46,10 @@ class ViewAnalysisService
             return [];
         }
 
-        $bladeAccesses = $this->bladeAnalyzer->analyze($viewPath);
+        $bladeAccesses = $this->bladeAnalyzer->analyze(
+            $viewPath,
+            $this->viewPathResolver
+        );
         $combinedAccesses = [];
 
         foreach ($bladeAccesses as $bladeAccess) {

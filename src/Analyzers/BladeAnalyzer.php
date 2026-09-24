@@ -2,13 +2,41 @@
 
 namespace Natan\NullSafetyTestGenerator\Analyzers;
 
+use Natan\NullSafetyTestGenerator\Resolvers\ViewPathResolver;
 use PhpParser\Node;
 use PhpParser\ParserFactory;
 
 class BladeAnalyzer
 {
-    public function analyze(string $viewPath): array
+    public function analyze(
+        string $viewPath,
+        ?ViewPathResolver $viewPathResolver = null
+    ): array {
+        $visitedPaths = [];
+
+        return $this->analyzeFile(
+            $viewPath,
+            $viewPathResolver,
+            $visitedPaths
+        );
+    }
+
+    private function analyzeFile(
+        string $viewPath,
+        ?ViewPathResolver $viewPathResolver,
+        array &$visitedPaths
+    ): array
     {
+        $resolvedViewPath = realpath($viewPath);
+
+        if (
+            $resolvedViewPath === false
+            || isset($visitedPaths[$resolvedViewPath])
+        ) {
+            return [];
+        }
+
+        $visitedPaths[$resolvedViewPath] = true;
         $blade = file_get_contents($viewPath);
 
         if ($blade === false) {
@@ -30,7 +58,93 @@ class BladeAnalyzer
 
         $this->analyzeStatements($ast, [], $accesses);
 
-        return $accesses;
+        foreach ($this->extractIncludedViewNames($blade) as $viewName) {
+            $includedPath = $this->resolveIncludedViewPath(
+                $viewName,
+                $resolvedViewPath,
+                $viewPathResolver
+            );
+
+            if ($includedPath === null) {
+                continue;
+            }
+
+            $accesses = [
+                ...$accesses,
+                ...$this->analyzeFile(
+                    $includedPath,
+                    $viewPathResolver,
+                    $visitedPaths
+                ),
+            ];
+        }
+
+        return $this->uniqueAccesses($accesses);
+    }
+
+    private function extractIncludedViewNames(string $blade): array
+    {
+        $matched = preg_match_all(
+            '/@include(?:If)?\s*\(\s*([\'\"])([^\'\"]+)\1/',
+            $blade,
+            $matches
+        );
+
+        if ($matched === false || $matched === 0) {
+            return [];
+        }
+
+        return array_values(array_unique($matches[2]));
+    }
+
+    private function resolveIncludedViewPath(
+        string $viewName,
+        string $parentPath,
+        ?ViewPathResolver $viewPathResolver
+    ): ?string {
+        $resolvedByLaravel = $viewPathResolver?->resolve($viewName);
+
+        if ($resolvedByLaravel !== null) {
+            return $resolvedByLaravel;
+        }
+
+        $relativePath = str_replace('.', DIRECTORY_SEPARATOR, $viewName)
+            . '.blade.php';
+        $directory = dirname($parentPath);
+
+        for ($depth = 0; $depth < 10; $depth++) {
+            $candidate = $directory . DIRECTORY_SEPARATOR . $relativePath;
+            $resolvedCandidate = realpath($candidate);
+
+            if (
+                $resolvedCandidate !== false
+                && is_file($resolvedCandidate)
+            ) {
+                return $resolvedCandidate;
+            }
+
+            $parentDirectory = dirname($directory);
+
+            if ($parentDirectory === $directory) {
+                break;
+            }
+
+            $directory = $parentDirectory;
+        }
+
+        return null;
+    }
+
+    private function uniqueAccesses(array $accesses): array
+    {
+        $unique = [];
+
+        foreach ($accesses as $access) {
+            $key = serialize($access);
+            $unique[$key] = $access;
+        }
+
+        return array_values($unique);
     }
 
     private function compileSupportedSyntax(string $blade): string

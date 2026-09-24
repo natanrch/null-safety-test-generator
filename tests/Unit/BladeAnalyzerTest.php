@@ -139,6 +139,36 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_recursively_analyzes_included_views_without_cycles(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('includes/parent.blade.php')
+        );
+
+        $this->assertSame([
+            [
+                'root' => 'object',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'title'],
+                ],
+            ],
+            [
+                'root' => 'object',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'relation'],
+                    ['type' => 'property', 'name' => 'name'],
+                ],
+            ],
+            [
+                'root' => 'object',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'date'],
+                    ['type' => 'method', 'name' => 'format'],
+                ],
+            ],
+        ], $result);
+    }
+
     private function viewPath(string $fileName): string
     {
         return __DIR__ . '/../Fixtures/views/blade/' . $fileName;
