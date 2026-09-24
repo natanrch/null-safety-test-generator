@@ -36,4 +36,21 @@ class RouteParameterResolverTest extends TestCase
 
         $this->assertSame([], $result);
     }
+
+    public function test_it_maps_a_snake_case_route_parameter_to_a_camel_case_variable(): void
+    {
+        $result = (new RouteParameterResolver())->resolve(
+            PostController::class,
+            'showRedacaoFinal',
+            ['redacao_final']
+        );
+
+        $this->assertSame([
+            'redacao_final' => [
+                'variable' => 'redacaoFinal',
+                'class' => Post::class,
+                'type' => 'model',
+            ],
+        ], $result);
+    }
 }

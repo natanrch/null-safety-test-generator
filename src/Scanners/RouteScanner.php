@@ -33,15 +33,20 @@ class RouteScanner
                 continue;
             }
 
+            $parameterModels = $this->resolveParameterModels(
+                $route,
+                $controllerClass,
+                $controllerMethod
+            );
+
             return [
                 'name' => $route->getName(),
                 'method' => $httpMethod,
-                'parameters' => $this->getParameters($route),
-                'parameterModels' => $this->resolveParameterModels(
+                'parameters' => $this->getParameters(
                     $route,
-                    $controllerClass,
-                    $controllerMethod
+                    $parameterModels
                 ),
+                'parameterModels' => $parameterModels,
             ];
         }
 
@@ -63,17 +68,22 @@ class RouteScanner
                 continue;
             }
 
+            $parameterModels = $this->resolveParameterModels(
+                $route,
+                $controllerAction['controller'],
+                $controllerAction['method']
+            );
+
             $routes[] = [
                 'name' => $route->getName(),
                 'method' => 'GET',
-                'parameters' => $this->getParameters($route),
+                'parameters' => $this->getParameters(
+                    $route,
+                    $parameterModels
+                ),
                 'controller' => $controllerAction['controller'],
                 'controllerMethod' => $controllerAction['method'],
-                'parameterModels' => $this->resolveParameterModels(
-                    $route,
-                    $controllerAction['controller'],
-                    $controllerAction['method']
-                ),
+                'parameterModels' => $parameterModels,
             ];
         }
 
@@ -119,12 +129,17 @@ class RouteScanner
         ];
     }
 
-    private function getParameters(Route $route): array
+    private function getParameters(
+        Route $route,
+        array $parameterModels = []
+    ): array
     {
         $parameters = [];
 
         foreach ($route->parameterNames() as $parameterName) {
-            $parameters[$parameterName] = $parameterName;
+            $parameters[$parameterName] =
+                $parameterModels[$parameterName]['variable']
+                ?? $parameterName;
         }
 
         return $parameters;

@@ -122,4 +122,56 @@ PHP,
             $result['code']
         );
     }
+
+    public function test_it_uses_a_camel_case_variable_for_a_snake_case_route_key(): void
+    {
+        $target = [
+            'model' => FakePost::class,
+            'property' => 'title',
+            'kind' => 'attribute',
+        ];
+
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate(
+            [
+                'root' => 'redacaoFinal',
+                'rootClass' => FakePost::class,
+                'rootType' => 'object',
+                'path' => ['title'],
+                'resolvedPath' => [$target],
+                'target' => $target,
+                'strategy' => 'null_attribute',
+            ],
+            [
+                'name' => 'redacao_final.show',
+                'method' => 'GET',
+                'parameters' => [
+                    'redacao_final' => 'redacaoFinal',
+                ],
+                'parameterModels' => [
+                    'redacao_final' => [
+                        'variable' => 'redacaoFinal',
+                        'class' => RoutePost::class,
+                        'type' => 'model',
+                    ],
+                ],
+            ]
+        );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$redacaoFinal = \\' . FakePost::class
+                . '::factory()->create([',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "route('redacao_final.show', ['redacao_final' => \$redacaoFinal])",
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            "\$redacao_final",
+            $result['code']
+        );
+    }
 }

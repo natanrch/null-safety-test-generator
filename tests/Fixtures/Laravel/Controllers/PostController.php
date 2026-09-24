@@ -12,4 +12,11 @@ class PostController
             'post' => $post,
         ]);
     }
+
+    public function showRedacaoFinal(Post $redacaoFinal)
+    {
+        return view('posts.show', [
+            'post' => $redacaoFinal,
+        ]);
+    }
 }

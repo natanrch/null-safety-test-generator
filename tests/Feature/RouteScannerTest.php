@@ -70,4 +70,29 @@ class RouteScannerTest extends TestCase
             ],
         ], $scanner->allGetControllerRoutes());
     }
+
+    public function test_it_uses_the_controller_variable_for_a_snake_case_route_parameter(): void
+    {
+        $router = $this->app->make(Router::class);
+        $router->get(
+            '/redacoes/{redacao_final}',
+            [PostController::class, 'showRedacaoFinal']
+        )->name('redacao_final.show');
+
+        $result = (new RouteScanner($router))->find(
+            PostController::class,
+            'showRedacaoFinal'
+        );
+
+        $this->assertSame([
+            'redacao_final' => 'redacaoFinal',
+        ], $result['parameters']);
+        $this->assertSame([
+            'redacao_final' => [
+                'variable' => 'redacaoFinal',
+                'class' => Post::class,
+                'type' => 'model',
+            ],
+        ], $result['parameterModels']);
+    }
 }

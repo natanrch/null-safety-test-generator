@@ -3,6 +3,7 @@
 namespace Natan\NullSafetyTestGenerator\Resolvers;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 use ReflectionMethod;
 use ReflectionNamedType;
 use Throwable;
@@ -23,19 +24,27 @@ class RouteParameterResolver
             return [];
         }
 
-        $routeParameterNames = array_fill_keys(
-            array_values($routeParameters),
-            true
-        );
         $resolved = [];
 
-        foreach ($method->getParameters() as $parameter) {
-            $name = $parameter->getName();
+        foreach ($routeParameters as $routeParameter) {
+            if (! is_string($routeParameter)) {
+                continue;
+            }
+
+            $parameter = $this->findControllerParameter(
+                $method,
+                $routeParameter
+            );
+
+            if ($parameter === null) {
+                continue;
+            }
+
+            $variable = $parameter->getName();
             $type = $parameter->getType();
 
             if (
-                ! isset($routeParameterNames[$name])
-                || ! $type instanceof ReflectionNamedType
+                ! $type instanceof ReflectionNamedType
                 || $type->isBuiltin()
             ) {
                 continue;
@@ -47,13 +56,35 @@ class RouteParameterResolver
                 continue;
             }
 
-            $resolved[$name] = [
-                'variable' => $name,
+            $resolved[$routeParameter] = [
+                'variable' => $variable,
                 'class' => $className,
                 'type' => 'model',
             ];
         }
 
         return $resolved;
+    }
+
+    private function findControllerParameter(
+        ReflectionMethod $method,
+        string $routeParameter
+    ): ?\ReflectionParameter {
+        foreach ($method->getParameters() as $parameter) {
+            if ($parameter->getName() === $routeParameter) {
+                return $parameter;
+            }
+        }
+
+        foreach ($method->getParameters() as $parameter) {
+            if (
+                Str::snake($parameter->getName())
+                === Str::snake($routeParameter)
+            ) {
+                return $parameter;
+            }
+        }
+
+        return null;
     }
 }
