@@ -169,6 +169,22 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_ignores_single_and_multiline_blade_comments(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('blade-comments.blade.php')
+        );
+
+        $this->assertSame([
+            [
+                'root' => 'object',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'name'],
+                ],
+            ],
+        ], $result);
+    }
+
     private function viewPath(string $fileName): string
     {
         return __DIR__ . '/../Fixtures/views/blade/' . $fileName;

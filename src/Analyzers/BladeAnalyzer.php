@@ -149,13 +149,23 @@ class BladeAnalyzer
 
     private function compileSupportedSyntax(string $blade): string
     {
+        $bladeWithoutComments = preg_replace(
+            '/{{--.*?--}}/s',
+            '',
+            $blade
+        );
+
+        if ($bladeWithoutComments === null) {
+            return $blade;
+        }
+
         $php = preg_replace_callback(
             '/{{\s*(.*?)\s*}}/s',
             static fn (array $matches): string => sprintf(
                 '<?php echo %s; ?>',
                 $matches[1]
             ),
-            $blade
+            $bladeWithoutComments
         );
 
         if ($php === null) {
