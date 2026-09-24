@@ -48,21 +48,133 @@ class BladeAnalyzer
             return $blade;
         }
 
-        $php = preg_replace(
-            '/@foreach\s*\((.*)\)/',
-            '<?php foreach ($1): ?>',
-            $php
-        );
-
-        if ($php === null) {
-            return $blade;
+        foreach ([
+            'foreach' => static fn (string $expression): string =>
+                '<?php foreach (' . $expression . '): ?>',
+            'elseif' => static fn (string $expression): string =>
+                '<?php elseif (' . $expression . '): ?>',
+            'unless' => static fn (string $expression): string =>
+                '<?php if (!(' . $expression . ')): ?>',
+            'if' => static fn (string $expression): string =>
+                '<?php if (' . $expression . '): ?>',
+        ] as $directive => $compiler) {
+            $php = $this->compileParenthesizedDirective(
+                $php,
+                $directive,
+                $compiler
+            );
         }
 
         return str_replace(
-            '@endforeach',
-            '<?php endforeach; ?>',
+            ['@endforeach', '@endif', '@endunless', '@else'],
+            [
+                '<?php endforeach; ?>',
+                '<?php endif; ?>',
+                '<?php endif; ?>',
+                '<?php else: ?>',
+            ],
             $php
         );
+    }
+
+    private function compileParenthesizedDirective(
+        string $blade,
+        string $directive,
+        callable $compiler
+    ): string {
+        $offset = 0;
+        $needle = '@' . $directive;
+
+        while (($start = strpos($blade, $needle, $offset)) !== false) {
+            $openParenthesis = $start + strlen($needle);
+
+            while (
+                isset($blade[$openParenthesis])
+                && ctype_space($blade[$openParenthesis])
+            ) {
+                $openParenthesis++;
+            }
+
+            if (($blade[$openParenthesis] ?? null) !== '(') {
+                $offset = $openParenthesis;
+                continue;
+            }
+
+            $closeParenthesis = $this->findClosingParenthesis(
+                $blade,
+                $openParenthesis
+            );
+
+            if ($closeParenthesis === null) {
+                break;
+            }
+
+            $expression = substr(
+                $blade,
+                $openParenthesis + 1,
+                $closeParenthesis - $openParenthesis - 1
+            );
+            $replacement = $compiler($expression);
+            $length = $closeParenthesis - $start + 1;
+            $blade = substr_replace(
+                $blade,
+                $replacement,
+                $start,
+                $length
+            );
+            $offset = $start + strlen($replacement);
+        }
+
+        return $blade;
+    }
+
+    private function findClosingParenthesis(
+        string $value,
+        int $openParenthesis
+    ): ?int {
+        $depth = 0;
+        $quote = null;
+        $escaped = false;
+        $length = strlen($value);
+
+        for ($index = $openParenthesis; $index < $length; $index++) {
+            $character = $value[$index];
+
+            if ($quote !== null) {
+                if ($escaped) {
+                    $escaped = false;
+                    continue;
+                }
+
+                if ($character === '\\') {
+                    $escaped = true;
+                    continue;
+                }
+
+                if ($character === $quote) {
+                    $quote = null;
+                }
+
+                continue;
+            }
+
+            if ($character === "'" || $character === '"') {
+                $quote = $character;
+                continue;
+            }
+
+            if ($character === '(') {
+                $depth++;
+            } elseif ($character === ')') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return $index;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function analyzeStatements(
@@ -74,14 +186,47 @@ class BladeAnalyzer
         foreach ($statements as $statement) {
             if ($statement instanceof Node\Stmt\Echo_) {
                 foreach ($statement->exprs as $expression) {
-                    $access = $this->analyzeExpression(
+                    $this->collectExpressionAccesses(
                         $expression,
-                        $aliases
+                        $aliases,
+                        $results
                     );
+                }
 
-                    if ($access !== null && $access['accesses'] !== []) {
-                        $results[] = $access;
-                    }
+                continue;
+            }
+
+            if ($statement instanceof Node\Stmt\If_) {
+                $this->collectExpressionAccesses(
+                    $statement->cond,
+                    $aliases,
+                    $results
+                );
+                $this->analyzeStatements(
+                    $statement->stmts,
+                    $aliases,
+                    $results
+                );
+
+                foreach ($statement->elseifs as $elseif) {
+                    $this->collectExpressionAccesses(
+                        $elseif->cond,
+                        $aliases,
+                        $results
+                    );
+                    $this->analyzeStatements(
+                        $elseif->stmts,
+                        $aliases,
+                        $results
+                    );
+                }
+
+                if ($statement->else !== null) {
+                    $this->analyzeStatements(
+                        $statement->else->stmts,
+                        $aliases,
+                        $results
+                    );
                 }
 
                 continue;
@@ -113,6 +258,95 @@ class BladeAnalyzer
         }
     }
 
+    private function collectExpressionAccesses(
+        Node\Expr $expression,
+        array $aliases,
+        array &$results
+    ): void {
+        $access = $this->analyzeExpression($expression, $aliases);
+
+        if (
+            $access !== null
+            && $access['accesses'] !== []
+            && ($access['nullsafe'] ?? false) !== true
+        ) {
+            unset($access['nullsafe']);
+            $results[] = $access;
+        }
+
+        if (
+            $expression instanceof Node\Expr\MethodCall
+            || $expression instanceof Node\Expr\NullsafeMethodCall
+            || $expression instanceof Node\Expr\StaticCall
+            || $expression instanceof Node\Expr\FuncCall
+        ) {
+            if (
+                $expression instanceof Node\Expr\FuncCall
+                && $expression->name instanceof Node\Name
+                && strtolower($expression->name->toString()) === 'is_null'
+            ) {
+                return;
+            }
+
+            foreach ($expression->args as $argument) {
+                $this->collectExpressionAccesses(
+                    $argument->value,
+                    $aliases,
+                    $results
+                );
+            }
+
+            return;
+        }
+
+        if ($expression instanceof Node\Expr\Ternary) {
+            $this->collectExpressionAccesses(
+                $expression->cond,
+                $aliases,
+                $results
+            );
+
+            if ($expression->if !== null) {
+                $this->collectExpressionAccesses(
+                    $expression->if,
+                    $aliases,
+                    $results
+                );
+            }
+
+            $this->collectExpressionAccesses(
+                $expression->else,
+                $aliases,
+                $results
+            );
+
+            return;
+        }
+
+        if ($expression instanceof Node\Expr\BinaryOp) {
+            $this->collectExpressionAccesses(
+                $expression->left,
+                $aliases,
+                $results
+            );
+            $this->collectExpressionAccesses(
+                $expression->right,
+                $aliases,
+                $results
+            );
+
+            return;
+        }
+
+        if ($expression instanceof Node\Expr\BooleanNot) {
+            $this->collectExpressionAccesses(
+                $expression->expr,
+                $aliases,
+                $results
+            );
+        }
+    }
+
     private function analyzeExpression(
         Node\Expr $expression,
         array $aliases
@@ -137,7 +371,8 @@ class BladeAnalyzer
         }
 
         if (
-            $expression instanceof Node\Expr\PropertyFetch
+            ($expression instanceof Node\Expr\PropertyFetch
+                || $expression instanceof Node\Expr\NullsafePropertyFetch)
             && $expression->name instanceof Node\Identifier
         ) {
             $result = $this->analyzeExpression(
@@ -154,11 +389,16 @@ class BladeAnalyzer
                 'name' => $expression->name->toString(),
             ];
 
+            if ($expression instanceof Node\Expr\NullsafePropertyFetch) {
+                $result['nullsafe'] = true;
+            }
+
             return $result;
         }
 
         if (
-            $expression instanceof Node\Expr\MethodCall
+            ($expression instanceof Node\Expr\MethodCall
+                || $expression instanceof Node\Expr\NullsafeMethodCall)
             && $expression->name instanceof Node\Identifier
         ) {
             $result = $this->analyzeExpression(
@@ -174,6 +414,10 @@ class BladeAnalyzer
                 'type' => 'method',
                 'name' => $expression->name->toString(),
             ];
+
+            if ($expression instanceof Node\Expr\NullsafeMethodCall) {
+                $result['nullsafe'] = true;
+            }
 
             return $result;
         }

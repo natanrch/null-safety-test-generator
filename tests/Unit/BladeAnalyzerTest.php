@@ -100,6 +100,45 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_analyzes_directives_and_nested_expressions(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('complex-expressions.blade.php')
+        );
+
+        $this->assertSame([
+            [
+                'root' => 'objects',
+                'alias' => 'item',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'active'],
+                ],
+            ],
+            [
+                'root' => 'objects',
+                'alias' => 'item',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'date'],
+                ],
+            ],
+            [
+                'root' => 'objects',
+                'alias' => 'item',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'date'],
+                    ['type' => 'method', 'name' => 'format'],
+                ],
+            ],
+            [
+                'root' => 'objects',
+                'alias' => 'item',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'id'],
+                ],
+            ],
+        ], $result);
+    }
+
     private function viewPath(string $fileName): string
     {
         return __DIR__ . '/../Fixtures/views/blade/' . $fileName;
