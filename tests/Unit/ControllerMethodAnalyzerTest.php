@@ -9,6 +9,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithAdditionalObj
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithChainedMethods;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithCollections;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithPluckedCollection;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithPagination;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use PHPUnit\Framework\TestCase;
 
@@ -170,6 +171,25 @@ class ControllerMethodAnalyzerTest extends TestCase
                 'class' => AnotherFakeObject::class,
                 'type' => 'collection',
             ],
+        ], $result);
+    }
+
+    public function test_it_identifies_all_pagination_methods_as_collections(): void
+    {
+        $result = (new ControllerMethodAnalyzer())->getObjectClasses(
+            FakeControllerWithPagination::class,
+            'index'
+        );
+
+        $collectionMetadata = [
+            'class' => AnotherFakeObject::class,
+            'type' => 'collection',
+        ];
+
+        $this->assertSame([
+            'paginatedObjects' => $collectionMetadata,
+            'simplePaginatedObjects' => $collectionMetadata,
+            'cursorPaginatedObjects' => $collectionMetadata,
         ], $result);
     }
 }

@@ -27,6 +27,9 @@ class ControllerMethodAnalyzer
         'get',
         'all',
         'pluck',
+        'paginate',
+        'simplePaginate',
+        'cursorPaginate',
     ];
 
     public function getObjectClasses(
