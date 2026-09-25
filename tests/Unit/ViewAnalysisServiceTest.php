@@ -12,6 +12,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\AnotherFakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithView;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakePostControllerWithView;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithRequestInput;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeAuthor;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeProfile;
@@ -146,6 +147,21 @@ class ViewAnalysisServiceTest extends TestCase
                 ],
             ],
         ], $result);
+    }
+
+    public function test_it_preserves_request_input_in_the_combined_analysis(): void
+    {
+        $result = $this->createAnalyzer()->analyze(
+            FakeControllerWithRequestInput::class,
+            'create',
+            __DIR__ . '/../Fixtures/views/objects/request.blade.php'
+        );
+
+        $this->assertSame([
+            'source' => 'request',
+            'parameter' => 'object_id',
+            'valueFrom' => 'model_key',
+        ], $result['accesses'][0]['input']);
     }
 
     private function createAnalyzer(): ViewAnalysisService

@@ -47,7 +47,7 @@ class FeatureTestGenerator
             implode("\n\n", $factoryBlocks),
             4
         );
-        $routeCall = $this->generateRouteCall($route);
+        $routeCall = $this->generateRouteCall($route, $scenario);
 
         $code = implode("\n", [
             'public function ' . $methodName . '(): void',
@@ -168,14 +168,13 @@ class FeatureTestGenerator
         return strtolower(trim($normalized ?? $name, '_'));
     }
 
-    private function generateRouteCall(array $route): string
+    private function generateRouteCall(
+        array $route,
+        array $scenario
+    ): string
     {
         $routeName = var_export($route['name'], true);
         $parameters = $route['parameters'] ?? [];
-
-        if ($parameters === []) {
-            return 'route(' . $routeName . ')';
-        }
 
         $generatedParameters = [];
 
@@ -186,6 +185,25 @@ class FeatureTestGenerator
 
             $generatedParameters[] = var_export($parameter, true)
                 . ' => $' . $variable;
+        }
+
+        $input = $scenario['input'] ?? null;
+
+        if (
+            is_array($input)
+            && ($input['source'] ?? null) === 'request'
+            && ($input['valueFrom'] ?? null) === 'model_key'
+            && is_string($input['parameter'] ?? null)
+            && ! array_key_exists($input['parameter'], $parameters)
+        ) {
+            $generatedParameters[] = var_export(
+                $input['parameter'],
+                true
+            ) . ' => $' . $scenario['root'] . '->getKey()';
+        }
+
+        if ($generatedParameters === []) {
+            return 'route(' . $routeName . ')';
         }
 
         return 'route(' . $routeName . ', ['

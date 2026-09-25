@@ -238,4 +238,32 @@ class NullScenarioGeneratorTest extends TestCase
             $result[2]['resolvedPath'] ?? null
         );
     }
+
+    public function test_it_preserves_request_input_metadata(): void
+    {
+        $result = (new NullScenarioGenerator())->generate([
+            'view' => 'posts.create',
+            'accesses' => [[
+                'root' => 'post',
+                'class' => FakePost::class,
+                'type' => 'object',
+                'input' => [
+                    'source' => 'request',
+                    'parameter' => 'post_id',
+                    'valueFrom' => 'model_key',
+                ],
+                'resolvedAccesses' => [[
+                    'model' => FakePost::class,
+                    'property' => 'title',
+                    'kind' => 'attribute',
+                ]],
+            ]],
+        ]);
+
+        $this->assertSame([
+            'source' => 'request',
+            'parameter' => 'post_id',
+            'valueFrom' => 'model_key',
+        ], $result[0]['input']);
+    }
 }

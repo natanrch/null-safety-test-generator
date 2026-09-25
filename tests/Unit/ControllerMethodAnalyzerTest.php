@@ -10,6 +10,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithChainedMethod
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithCollections;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithPluckedCollection;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithPagination;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithRequestInput;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use PHPUnit\Framework\TestCase;
 
@@ -191,5 +192,28 @@ class ControllerMethodAnalyzerTest extends TestCase
             'simplePaginatedObjects' => $collectionMetadata,
             'cursorPaginatedObjects' => $collectionMetadata,
         ], $result);
+    }
+
+    public function test_it_identifies_a_model_key_loaded_from_the_request(): void
+    {
+        $analyzer = new ControllerMethodAnalyzer();
+        $input = [
+            'source' => 'request',
+            'parameter' => 'object_id',
+            'valueFrom' => 'model_key',
+        ];
+
+        foreach (['create', 'createOrFail'] as $method) {
+            $result = $analyzer->getObjectClasses(
+                FakeControllerWithRequestInput::class,
+                $method
+            );
+
+            $this->assertSame([
+                'class' => AnotherFakeObject::class,
+                'type' => 'object',
+                'input' => $input,
+            ], $result['object']);
+        }
     }
 }

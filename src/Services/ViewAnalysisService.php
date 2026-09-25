@@ -74,6 +74,10 @@ class ViewAnalysisService
                 'type' => $variable['type'],
             ];
 
+            if (isset($variable['input']) && is_array($variable['input'])) {
+                $combinedAccess['input'] = $variable['input'];
+            }
+
             if (isset($bladeAccess['alias'])) {
                 $combinedAccess['alias'] = $bladeAccess['alias'];
             }

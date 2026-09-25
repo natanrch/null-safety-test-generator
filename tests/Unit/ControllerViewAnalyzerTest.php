@@ -7,6 +7,7 @@ use Natan\NullSafetyTestGenerator\Analyzers\ControllerViewAnalyzer;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\AnotherFakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithView;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithRequestInput;
 use PHPUnit\Framework\TestCase;
 
 class ControllerViewAnalyzerTest extends TestCase
@@ -56,5 +57,22 @@ class ControllerViewAnalyzerTest extends TestCase
             'unusedObject',
             $result['variables']
         );
+    }
+
+    public function test_it_preserves_request_input_metadata_for_a_view_variable(): void
+    {
+        $result = (new ControllerViewAnalyzer(
+            new ControllerMethodAnalyzer()
+        ))->analyze(FakeControllerWithRequestInput::class, 'create');
+
+        $this->assertSame([
+            'class' => AnotherFakeObject::class,
+            'type' => 'object',
+            'input' => [
+                'source' => 'request',
+                'parameter' => 'object_id',
+                'valueFrom' => 'model_key',
+            ],
+        ], $result['variables']['object']);
     }
 }

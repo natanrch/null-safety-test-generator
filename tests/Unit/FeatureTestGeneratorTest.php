@@ -174,4 +174,40 @@ PHP,
             $result['code']
         );
     }
+
+    public function test_it_passes_a_model_key_loaded_from_the_request_as_a_query_parameter(): void
+    {
+        $target = [
+            'model' => FakePost::class,
+            'property' => 'title',
+            'kind' => 'attribute',
+        ];
+
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'post',
+            'rootClass' => FakePost::class,
+            'rootType' => 'object',
+            'path' => ['title'],
+            'resolvedPath' => [$target],
+            'target' => $target,
+            'strategy' => 'null_attribute',
+            'input' => [
+                'source' => 'request',
+                'parameter' => 'post_id',
+                'valueFrom' => 'model_key',
+            ],
+        ], [
+            'name' => 'posts.create',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            "route('posts.create', ['post_id' => \$post->getKey()])",
+            $result['code']
+        );
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace Natan\NullSafetyTestGenerator\Analyzers;
 
+use Illuminate\Http\Request;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
@@ -132,6 +133,9 @@ class ControllerMethodAnalyzer
         );
 
         $classes = [];
+        $requestVariables = $this->getRequestParameterNames(
+            $reflectionMethod
+        );
 
         foreach ($assignments as $assignment) {
             if (! $assignment->var instanceof Node\Expr\Variable) {
@@ -158,13 +162,87 @@ class ControllerMethodAnalyzer
                 continue;
             }
 
-            $classes[$assignment->var->name] = [
+            $metadata = [
                 'class' => $className,
                 'type' => $resultType,
             ];
+
+            $requestInput = $this->getRequestInput(
+                $assignment->expr,
+                $requestVariables
+            );
+
+            if ($requestInput !== null) {
+                $metadata['input'] = $requestInput;
+            }
+
+            $classes[$assignment->var->name] = $metadata;
         }
 
         return $classes;
+    }
+
+    private function getRequestParameterNames(
+        ReflectionMethod $method
+    ): array {
+        $requestParameters = [];
+
+        foreach ($method->getParameters() as $parameter) {
+            $type = $parameter->getType();
+
+            if (
+                ! $type instanceof ReflectionNamedType
+                || $type->isBuiltin()
+            ) {
+                continue;
+            }
+
+            $className = $type->getName();
+
+            if (
+                $className === Request::class
+                || is_subclass_of($className, Request::class)
+            ) {
+                $requestParameters[$parameter->getName()] = true;
+            }
+        }
+
+        return $requestParameters;
+    }
+
+    private function getRequestInput(
+        Node\Expr $expression,
+        array $requestVariables
+    ): ?array {
+        if (
+            ! $expression instanceof Node\Expr\StaticCall
+            || ! $expression->name instanceof Node\Identifier
+            || ! in_array(
+                $expression->name->toString(),
+                ['find', 'findOrFail'],
+                true
+            )
+        ) {
+            return null;
+        }
+
+        $argument = $expression->args[0]->value ?? null;
+
+        if (
+            ! $argument instanceof Node\Expr\PropertyFetch
+            || ! $argument->var instanceof Node\Expr\Variable
+            || ! is_string($argument->var->name)
+            || ! isset($requestVariables[$argument->var->name])
+            || ! $argument->name instanceof Node\Identifier
+        ) {
+            return null;
+        }
+
+        return [
+            'source' => 'request',
+            'parameter' => $argument->name->toString(),
+            'valueFrom' => 'model_key',
+        ];
     }
 
     private function getRootClassFromExpression(

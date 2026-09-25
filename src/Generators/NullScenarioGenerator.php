@@ -52,7 +52,7 @@ class NullScenarioGenerator
                     continue;
                 }
 
-                $scenarios[] = [
+                $scenario = [
                     'root' => $analyzedAccess['root'],
                     'rootClass' => $analyzedAccess['class'],
                     'rootType' => $analyzedAccess['type'],
@@ -61,6 +61,15 @@ class NullScenarioGenerator
                     'target' => $target,
                     'strategy' => $strategy,
                 ];
+
+                if (
+                    isset($analyzedAccess['input'])
+                    && is_array($analyzedAccess['input'])
+                ) {
+                    $scenario['input'] = $analyzedAccess['input'];
+                }
+
+                $scenarios[] = $scenario;
 
                 $generatedScenarios[$scenarioKey] = true;
             }
