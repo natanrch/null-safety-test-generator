@@ -196,4 +196,43 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             )
             ->assertFailed();
     }
+
+    public function test_force_preserves_manual_changes_in_existing_tests(): void
+    {
+        $arguments = [
+            '--all' => true,
+            '--output' => $this->outputDirectory,
+        ];
+
+        $this->artisan('null-safety:generate', $arguments)
+            ->assertSuccessful();
+
+        $path = $this->outputDirectory
+            . '/ApplicationNullSafetyTest.php';
+        $manuallyEditedCode = str_replace(
+            'use RefreshDatabase;',
+            "use RefreshDatabase;\n\n    // manual customization",
+            file_get_contents($path)
+        );
+        file_put_contents($path, $manuallyEditedCode);
+
+        $arguments['--force'] = true;
+
+        $this->artisan('null-safety:generate', $arguments)
+            ->expectsOutputToContain(
+                'Added tests: 0; preserved existing tests: 4.'
+            )
+            ->assertSuccessful();
+
+        $mergedCode = file_get_contents($path);
+
+        $this->assertStringContainsString(
+            '// manual customization',
+            $mergedCode
+        );
+        $this->assertSame(
+            4,
+            substr_count($mergedCode, 'public function test_')
+        );
+    }
 }

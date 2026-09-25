@@ -15,7 +15,7 @@ class GenerateNullSafetyTestsCommand extends Command
         {--controller= : Fully qualified controller class}
         {--method=show : Controller method}
         {--output= : Directory where the generated test will be written}
-        {--force : Overwrite an existing generated test file}';
+        {--force : Update an existing file by appending missing tests}';
 
     protected $description = 'Generate null-safety feature tests for a controller view';
 
@@ -124,11 +124,9 @@ class GenerateNullSafetyTestsCommand extends Command
             ? trim($output)
             : base_path('tests/Feature/Generated');
 
-        $writeResult = $writer->write(
-            $generatedFile,
-            $directory,
-            (bool) $this->option('force')
-        );
+        $writeResult = (bool) $this->option('force')
+            ? $writer->merge($generatedFile, $directory)
+            : $writer->write($generatedFile, $directory);
 
         if (($writeResult['written'] ?? false) !== true) {
             $this->error(
@@ -143,6 +141,14 @@ class GenerateNullSafetyTestsCommand extends Command
             'Null-safety test generated: %s',
             $writeResult['path']
         ));
+
+        if (($writeResult['merged'] ?? false) === true) {
+            $this->info(sprintf(
+                'Added tests: %d; preserved existing tests: %d.',
+                $writeResult['addedTests'] ?? 0,
+                $writeResult['preservedTests'] ?? 0
+            ));
+        }
 
         if ($batch) {
             $this->info(sprintf(
