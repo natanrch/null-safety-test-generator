@@ -34,7 +34,9 @@ class GenerateNullSafetyTestsCommand extends Command
             }
 
             try {
-                $generatedFile = $batchGenerator->generate();
+                $generatedFile = $batchGenerator->generate(
+                    fn (array $event) => $this->displayProgress($event)
+                );
             } catch (Throwable $exception) {
                 $this->error(sprintf(
                     'The test batch could not be generated: %s',
@@ -163,6 +165,47 @@ class GenerateNullSafetyTestsCommand extends Command
             if (is_string($warning) && $warning !== '') {
                 $this->warn($warning);
             }
+        }
+    }
+
+    private function displayProgress(array $event): void
+    {
+        $status = $event['status'] ?? null;
+
+        if ($status === 'analyzing') {
+            $this->line(sprintf(
+                '[%d/%d] Analyzing %s...',
+                $event['current'] ?? 0,
+                $event['total'] ?? 0,
+                $event['route'] ?? 'unknown route'
+            ));
+
+            return;
+        }
+
+        if ($status === 'generated') {
+            $this->line(sprintf(
+                '        Generated %d tests.',
+                $event['tests'] ?? 0
+            ));
+
+            return;
+        }
+
+        if ($status === 'skipped') {
+            $this->line(sprintf(
+                '        Skipped: %s.',
+                $event['message'] ?? 'route not supported'
+            ));
+
+            return;
+        }
+
+        if ($status === 'failed') {
+            $this->line(sprintf(
+                '        Failed: %s.',
+                $event['message'] ?? 'route analysis failed'
+            ));
         }
     }
 }

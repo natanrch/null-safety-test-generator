@@ -70,16 +70,49 @@ class BatchNullSafetyTestGenerationServiceTest extends TestCase
                 'code' => '<?php // generated',
             ]);
 
+        $events = [];
         $result = (new BatchNullSafetyTestGenerationService(
             $routeScanner,
             $generator,
             $fileGenerator
-        ))->generate();
+        ))->generate(
+            static function (array $event) use (&$events): void {
+                $events[] = $event;
+            }
+        );
 
         $this->assertTrue($result['generated']);
         $this->assertSame(1, $result['analyzedRoutes']);
         $this->assertSame([
             'broken.show: The route could not be analyzed: Invalid controller source.',
         ], $result['warnings']);
+        $this->assertSame([
+            [
+                'status' => 'analyzing',
+                'current' => 1,
+                'total' => 2,
+                'route' => 'broken.show',
+            ],
+            [
+                'status' => 'failed',
+                'current' => 1,
+                'total' => 2,
+                'route' => 'broken.show',
+                'message' => 'Invalid controller source.',
+            ],
+            [
+                'status' => 'analyzing',
+                'current' => 2,
+                'total' => 2,
+                'route' => 'posts.show',
+            ],
+            [
+                'status' => 'generated',
+                'current' => 2,
+                'total' => 2,
+                'route' => 'posts.show',
+                'tests' => 1,
+            ],
+        ], $events);
     }
 }

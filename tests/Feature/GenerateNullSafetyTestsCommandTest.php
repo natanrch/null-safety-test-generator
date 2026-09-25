@@ -123,6 +123,8 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             '--all' => true,
             '--output' => $this->outputDirectory,
         ])
+            ->expectsOutputToContain('[1/1] Analyzing posts.show...')
+            ->expectsOutputToContain('Generated 4 tests.')
             ->expectsOutputToContain('Null-safety test generated:')
             ->expectsOutputToContain(
                 'Analyzed routes: 1; generated tests: 4.'
