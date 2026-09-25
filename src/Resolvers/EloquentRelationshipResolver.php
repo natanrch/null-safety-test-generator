@@ -80,20 +80,15 @@ class EloquentRelationshipResolver
             Node\Stmt\Return_::class
         );
 
-        if (
-            ! $return instanceof Node\Stmt\Return_
-            || ! $return->expr instanceof Node\Expr\MethodCall
-        ) {
+        if (! $return instanceof Node\Stmt\Return_) {
             return null;
         }
 
-        $relationshipCall = $return->expr;
+        $relationshipCall = $this->findRelationshipCall(
+            $return->expr
+        );
 
-        if (
-            ! $relationshipCall->var instanceof Node\Expr\Variable
-            || $relationshipCall->var->name !== 'this'
-            || ! $relationshipCall->name instanceof Node\Identifier
-        ) {
+        if ($relationshipCall === null) {
             return null;
         }
 
@@ -116,6 +111,33 @@ class EloquentRelationshipResolver
             'relation' => $relationshipType,
             'relatedClass' => $relatedClass,
         ];
+    }
+
+    private function findRelationshipCall(
+        ?Node\Expr $expression
+    ): ?Node\Expr\MethodCall {
+        if (! $expression instanceof Node\Expr\MethodCall) {
+            return null;
+        }
+
+        if (
+            $expression->var instanceof Node\Expr\Variable
+            && $expression->var->name === 'this'
+            && $expression->name instanceof Node\Identifier
+            && in_array(
+                $expression->name->toString(),
+                self::RELATIONSHIP_METHODS,
+                true
+            )
+        ) {
+            return $expression;
+        }
+
+        if ($expression->var instanceof Node\Expr\MethodCall) {
+            return $this->findRelationshipCall($expression->var);
+        }
+
+        return null;
     }
 
     private function getRelatedClass(

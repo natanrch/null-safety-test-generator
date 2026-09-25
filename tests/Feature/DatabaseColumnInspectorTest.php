@@ -47,6 +47,18 @@ class DatabaseColumnInspectorTest extends TestCase
         $this->assertNull($result['nullable']);
     }
 
+    public function test_it_discards_an_unresolved_property_that_is_not_a_column(): void
+    {
+        $result = (new FactoryTestGenerator(
+            new DatabaseColumnInspector()
+        ))->generate($this->scenarioFor('computed_name'));
+
+        $this->assertSame([
+            'generated' => false,
+            'message' => 'Property posts.computed_name is not a database column and could not be resolved as a relationship; the scenario was skipped.',
+        ], $result);
+    }
+
     public function test_it_discards_a_null_scenario_for_a_not_null_column(): void
     {
         $result = (new FactoryTestGenerator(

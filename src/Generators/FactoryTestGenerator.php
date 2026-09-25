@@ -421,6 +421,20 @@ class FactoryTestGenerator
         );
 
         if (
+            ($inspection['inspected'] ?? false) === true
+            && ($inspection['exists'] ?? true) === false
+        ) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'Property %s.%s is not a database column and could not be resolved as a relationship; the scenario was skipped.',
+                    $inspection['table'],
+                    $inspection['column']
+                ),
+            ];
+        }
+
+        if (
             ($inspection['inspected'] ?? false) !== true
             || ($inspection['exists'] ?? false) !== true
             || ($inspection['nullable'] ?? null) !== false

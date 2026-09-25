@@ -20,4 +20,10 @@ class FakeAuthor
     {
         return $this->hasMany(FakePost::class);
     }
+
+    public function orderedPosts()
+    {
+        return $this->hasMany(FakePost::class)
+            ->orderBy('title');
+    }
 }

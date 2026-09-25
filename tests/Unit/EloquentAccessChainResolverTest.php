@@ -57,4 +57,26 @@ class EloquentAccessChainResolverTest extends TestCase
             ],
         ], $result);
     }
+
+    public function test_it_resolves_a_chained_has_many_as_a_relationship(): void
+    {
+        $result = (new EloquentAccessChainResolver(
+            new EloquentRelationshipResolver()
+        ))->resolve(FakeAuthor::class, [
+            [
+                'type' => 'property',
+                'name' => 'orderedPosts',
+            ],
+        ]);
+
+        $this->assertSame([
+            [
+                'model' => FakeAuthor::class,
+                'property' => 'orderedPosts',
+                'kind' => 'relationship',
+                'relation' => 'hasMany',
+                'relatedClass' => FakePost::class,
+            ],
+        ], $result);
+    }
 }

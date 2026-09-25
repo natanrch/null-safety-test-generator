@@ -63,4 +63,20 @@ class EloquentRelationshipResolverTest extends TestCase
             'relatedClass' => FakePost::class,
         ], $result);
     }
+
+    public function test_it_identifies_a_relationship_inside_a_chained_query(): void
+    {
+        $result = (new EloquentRelationshipResolver())->resolve(
+            FakeAuthor::class,
+            'orderedPosts'
+        );
+
+        $this->assertSame([
+            'model' => FakeAuthor::class,
+            'property' => 'orderedPosts',
+            'kind' => 'relationship',
+            'relation' => 'hasMany',
+            'relatedClass' => FakePost::class,
+        ], $result);
+    }
 }
