@@ -133,6 +133,32 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_preserves_access_chains_assigned_in_php_blocks(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('php-assignment-forelse.blade.php')
+        );
+
+        $this->assertSame([
+            [
+                'root' => 'post',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'author'],
+                    ['type' => 'property', 'name' => 'posts'],
+                ],
+            ],
+            [
+                'root' => 'post',
+                'alias' => 'relatedPost',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'author'],
+                    ['type' => 'property', 'name' => 'posts'],
+                    ['type' => 'property', 'name' => 'title'],
+                ],
+            ],
+        ], $result);
+    }
+
     public function test_it_analyzes_directives_and_nested_expressions(): void
     {
         $result = (new BladeAnalyzer())->analyze(

@@ -172,6 +172,18 @@ class BladeAnalyzer
             return $blade;
         }
 
+        $php = preg_replace(
+            '/@php\b(?!\s*\()/',
+            '<?php ',
+            $php
+        );
+
+        if ($php === null) {
+            return $blade;
+        }
+
+        $php = str_replace('@endphp', ' ?>', $php);
+
         foreach ([
             'forelse' => static fn (string $expression): string =>
                 '<?php foreach (' . $expression . '): ?>',
@@ -327,6 +339,33 @@ class BladeAnalyzer
     ): void 
     {
         foreach ($statements as $statement) {
+            if (
+                $statement instanceof Node\Stmt\Expression
+                && $statement->expr instanceof Node\Expr\Assign
+                && $statement->expr->var instanceof Node\Expr\Variable
+                && is_string($statement->expr->var->name)
+            ) {
+                $assignment = $statement->expr;
+
+                $this->collectExpressionAccesses(
+                    $assignment->expr,
+                    $aliases,
+                    $results
+                );
+
+                $assignedAccess = $this->analyzeExpression(
+                    $assignment->expr,
+                    $aliases
+                );
+
+                if ($assignedAccess !== null) {
+                    unset($assignedAccess['alias']);
+                    $aliases[$assignment->var->name] = $assignedAccess;
+                }
+
+                continue;
+            }
+
             if ($statement instanceof Node\Stmt\Echo_) {
                 foreach ($statement->exprs as $expression) {
                     $this->collectExpressionAccesses(
@@ -382,15 +421,19 @@ class BladeAnalyzer
             $foreachAliases = $aliases;
 
             if (
-                $statement->expr instanceof Node\Expr\Variable
-                && is_string($statement->expr->name)
-                && $statement->valueVar instanceof Node\Expr\Variable
+                $statement->valueVar instanceof Node\Expr\Variable
                 && is_string($statement->valueVar->name)
             ) {
-                $collectionName = $statement->expr->name;
+                $collectionAccess = $this->analyzeExpression(
+                    $statement->expr,
+                    $aliases
+                );
 
-                $foreachAliases[$statement->valueVar->name] =
-                    $aliases[$collectionName] ?? $collectionName;
+                if ($collectionAccess !== null) {
+                    unset($collectionAccess['alias']);
+                    $foreachAliases[$statement->valueVar->name] =
+                        $collectionAccess;
+                }
             }
 
             $this->analyzeStatements(
@@ -500,11 +543,34 @@ class BladeAnalyzer
             }
 
             if (array_key_exists($expression->name, $aliases)) {
-                return [
-                    'root' => $aliases[$expression->name],
-                    'alias' => $expression->name,
-                    'accesses' => [],
-                ];
+                $alias = $aliases[$expression->name];
+
+                if (is_string($alias)) {
+                    return [
+                        'root' => $alias,
+                        'alias' => $expression->name,
+                        'accesses' => [],
+                    ];
+                }
+
+                if (
+                    is_array($alias)
+                    && isset($alias['root'], $alias['accesses'])
+                    && is_string($alias['root'])
+                    && is_array($alias['accesses'])
+                ) {
+                    $result = [
+                        'root' => $alias['root'],
+                        'alias' => $expression->name,
+                        'accesses' => $alias['accesses'],
+                    ];
+
+                    if (($alias['nullsafe'] ?? false) === true) {
+                        $result['nullsafe'] = true;
+                    }
+
+                    return $result;
+                }
             }
 
             return [

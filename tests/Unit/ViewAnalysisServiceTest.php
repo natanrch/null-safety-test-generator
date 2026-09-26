@@ -222,6 +222,42 @@ class ViewAnalysisServiceTest extends TestCase
         $this->assertSame('null_attribute', $scenarios[1]['strategy']);
     }
 
+    public function test_it_resolves_a_collection_assigned_inside_a_php_block(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakePostControllerWithView::class,
+            'show',
+            __DIR__
+                . '/../Fixtures/views/blade/php-assignment-forelse.blade.php'
+        );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
+        $this->assertSame(
+            ['author'],
+            $scenarios[0]['path']
+        );
+        $this->assertSame(
+            'missing_relationship',
+            $scenarios[0]['strategy']
+        );
+        $this->assertSame(
+            ['author', 'posts'],
+            $scenarios[1]['path']
+        );
+        $this->assertSame(
+            'empty_collection',
+            $scenarios[1]['strategy']
+        );
+        $this->assertSame(
+            ['author', 'posts', 'title'],
+            $scenarios[2]['path']
+        );
+        $this->assertSame(
+            'null_attribute',
+            $scenarios[2]['strategy']
+        );
+    }
+
     private function createAnalyzer(): ViewAnalysisService
     {
         return new ViewAnalysisService(
