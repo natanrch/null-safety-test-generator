@@ -23,6 +23,37 @@ class NullScenarioGenerator
                 continue;
             }
 
+            $input = $analyzedAccess['input'] ?? null;
+
+            if (
+                is_array($input)
+                && ($input['source'] ?? null) === 'request'
+                && is_string($input['parameter'] ?? null)
+            ) {
+                $scenarioKey = implode('|', [
+                    $analyzedAccess['root'],
+                    $input['parameter'],
+                    'missing_request_parameter',
+                ]);
+
+                if (! isset($generatedScenarios[$scenarioKey])) {
+                    $scenarios[] = [
+                        'root' => $analyzedAccess['root'],
+                        'rootClass' => $analyzedAccess['class'],
+                        'rootType' => $analyzedAccess['type'],
+                        'path' => [],
+                        'resolvedPath' => [],
+                        'target' => [
+                            'kind' => 'request_parameter',
+                            'parameter' => $input['parameter'],
+                        ],
+                        'strategy' => 'missing_request_parameter',
+                        'input' => $input,
+                    ];
+                    $generatedScenarios[$scenarioKey] = true;
+                }
+            }
+
             if (($analyzedAccess['type'] ?? null) === 'collection') {
                 $scenarioKey = implode('|', [
                     $analyzedAccess['root'],

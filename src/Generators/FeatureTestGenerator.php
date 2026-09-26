@@ -153,6 +153,17 @@ class FeatureTestGenerator
 
         $scenarioDescription = implode('_', [$root, ...$path]);
 
+        if (($scenario['strategy'] ?? null) === 'missing_request_parameter') {
+            $parameter = $scenario['input']['parameter'] ?? 'request_parameter';
+
+            return 'test_' . $routeName
+                . '_does_not_fail_when_'
+                . $this->normalizeName(
+                    is_string($parameter) ? $parameter : 'request_parameter'
+                )
+                . '_is_missing';
+        }
+
         if (($scenario['strategy'] ?? null) === 'empty_root_collection') {
             return 'test_' . $routeName
                 . '_does_not_fail_when_'
@@ -200,6 +211,7 @@ class FeatureTestGenerator
 
         if (
             is_array($input)
+            && ($scenario['strategy'] ?? null) !== 'missing_request_parameter'
             && ($input['source'] ?? null) === 'request'
             && ($input['valueFrom'] ?? null) === 'model_key'
             && is_string($input['parameter'] ?? null)

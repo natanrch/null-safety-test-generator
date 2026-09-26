@@ -223,6 +223,32 @@ class FactoryTestGeneratorTest extends TestCase
         ], $result);
     }
 
+    public function test_it_omits_the_model_for_a_missing_request_parameter(): void
+    {
+        $result = (new FactoryTestGenerator())->generate([
+            'root' => 'post',
+            'rootClass' => FakePost::class,
+            'rootType' => 'object',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'kind' => 'request_parameter',
+                'parameter' => 'post_id',
+            ],
+            'strategy' => 'missing_request_parameter',
+            'input' => [
+                'source' => 'request',
+                'parameter' => 'post_id',
+                'valueFrom' => 'model_key',
+            ],
+        ]);
+
+        $this->assertSame([
+            'generated' => true,
+            'code' => '// The post_id request parameter is intentionally omitted.',
+        ], $result);
+    }
+
     private function attributeScenario(string $modelClass): array
     {
         return [

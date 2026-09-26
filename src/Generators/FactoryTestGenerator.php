@@ -77,6 +77,18 @@ class FactoryTestGenerator
             ];
         }
 
+        if (($scenario['strategy'] ?? null) === 'missing_request_parameter') {
+            $parameter = $scenario['input']['parameter'] ?? 'request parameter';
+
+            return [
+                'generated' => true,
+                'code' => sprintf(
+                    '// The %s request parameter is intentionally omitted.',
+                    $parameter
+                ),
+            ];
+        }
+
         $root = $scenario['root'] ?? null;
         $property = $scenario['target']['property'] ?? null;
 

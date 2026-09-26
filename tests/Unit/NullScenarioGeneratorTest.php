@@ -260,11 +260,52 @@ class NullScenarioGeneratorTest extends TestCase
             ]],
         ]);
 
+        $this->assertSame('missing_request_parameter', $result[0]['strategy']);
         $this->assertSame([
             'source' => 'request',
             'parameter' => 'post_id',
             'valueFrom' => 'model_key',
-        ], $result[0]['input']);
+        ], $result[1]['input']);
+    }
+
+    public function test_it_generates_a_missing_request_parameter_scenario(): void
+    {
+        $result = (new NullScenarioGenerator())->generate([
+            'view' => 'posts.create',
+            'accesses' => [[
+                'root' => 'post',
+                'class' => FakePost::class,
+                'type' => 'object',
+                'input' => [
+                    'source' => 'request',
+                    'parameter' => 'post_id',
+                    'valueFrom' => 'model_key',
+                ],
+                'resolvedAccesses' => [[
+                    'model' => FakePost::class,
+                    'property' => 'title',
+                    'kind' => 'attribute',
+                ]],
+            ]],
+        ]);
+
+        $this->assertSame([
+            'root' => 'post',
+            'rootClass' => FakePost::class,
+            'rootType' => 'object',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'kind' => 'request_parameter',
+                'parameter' => 'post_id',
+            ],
+            'strategy' => 'missing_request_parameter',
+            'input' => [
+                'source' => 'request',
+                'parameter' => 'post_id',
+                'valueFrom' => 'model_key',
+            ],
+        ], $result[0]);
     }
 
     public function test_it_generates_an_empty_scenario_for_a_root_collection(): void

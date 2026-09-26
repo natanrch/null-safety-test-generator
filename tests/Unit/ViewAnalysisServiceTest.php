@@ -166,6 +166,25 @@ class ViewAnalysisServiceTest extends TestCase
         ], $result['accesses'][0]['input']);
     }
 
+    public function test_it_produces_a_scenario_for_an_absent_request_parameter(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakeControllerWithRequestInput::class,
+            'create',
+            __DIR__ . '/../Fixtures/views/objects/request.blade.php'
+        );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
+        $this->assertSame(
+            'missing_request_parameter',
+            $scenarios[0]['strategy']
+        );
+        $this->assertSame(
+            'object_id',
+            $scenarios[0]['input']['parameter']
+        );
+    }
+
     public function test_it_produces_an_empty_scenario_for_a_paginated_view(): void
     {
         $analysis = $this->createAnalyzer()->analyze(
