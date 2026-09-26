@@ -100,6 +100,39 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_resolves_collection_items_created_by_forelse(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('collection-forelse.blade.php')
+        );
+
+        $this->assertSame([
+            [
+                'root' => 'objects',
+                'alias' => 'item',
+                'accesses' => [
+                    [
+                        'type' => 'property',
+                        'name' => 'relation',
+                    ],
+                    [
+                        'type' => 'property',
+                        'name' => 'name',
+                    ],
+                ],
+            ],
+            [
+                'root' => 'fallback',
+                'accesses' => [
+                    [
+                        'type' => 'property',
+                        'name' => 'message',
+                    ],
+                ],
+            ],
+        ], $result);
+    }
+
     public function test_it_analyzes_directives_and_nested_expressions(): void
     {
         $result = (new BladeAnalyzer())->analyze(

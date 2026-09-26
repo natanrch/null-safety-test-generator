@@ -173,6 +173,8 @@ class BladeAnalyzer
         }
 
         foreach ([
+            'forelse' => static fn (string $expression): string =>
+                '<?php foreach (' . $expression . '): ?>',
             'foreach' => static fn (string $expression): string =>
                 '<?php foreach (' . $expression . '): ?>',
             'elseif' => static fn (string $expression): string =>
@@ -189,9 +191,26 @@ class BladeAnalyzer
             );
         }
 
+        $php = preg_replace(
+            '/@empty(?!\s*\()/',
+            '<?php endforeach; if (true): ?>',
+            $php
+        );
+
+        if ($php === null) {
+            return $blade;
+        }
+
         return str_replace(
-            ['@endforeach', '@endif', '@endunless', '@else'],
             [
+                '@endforelse',
+                '@endforeach',
+                '@endif',
+                '@endunless',
+                '@else',
+            ],
+            [
+                '<?php endif; ?>',
                 '<?php endforeach; ?>',
                 '<?php endif; ?>',
                 '<?php endif; ?>',

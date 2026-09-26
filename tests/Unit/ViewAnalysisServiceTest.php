@@ -205,6 +205,23 @@ class ViewAnalysisServiceTest extends TestCase
         $this->assertSame([], $scenarios[0]['path']);
     }
 
+    public function test_it_produces_an_empty_collection_scenario_for_forelse(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakeControllerWithView::class,
+            'show',
+            __DIR__ . '/../Fixtures/views/objects/forelse.blade.php'
+        );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
+        $this->assertSame('objects', $scenarios[0]['root']);
+        $this->assertSame(
+            'empty_root_collection',
+            $scenarios[0]['strategy']
+        );
+        $this->assertSame('null_attribute', $scenarios[1]['strategy']);
+    }
+
     private function createAnalyzer(): ViewAnalysisService
     {
         return new ViewAnalysisService(
