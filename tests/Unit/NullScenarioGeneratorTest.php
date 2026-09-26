@@ -266,4 +266,36 @@ class NullScenarioGeneratorTest extends TestCase
             'valueFrom' => 'model_key',
         ], $result[0]['input']);
     }
+
+    public function test_it_generates_an_empty_scenario_for_a_root_collection(): void
+    {
+        $result = (new NullScenarioGenerator())->generate([
+            'view' => 'posts.index',
+            'accesses' => [[
+                'root' => 'posts',
+                'class' => FakePost::class,
+                'type' => 'collection',
+                'alias' => 'post',
+                'resolvedAccesses' => [[
+                    'model' => FakePost::class,
+                    'property' => 'title',
+                    'kind' => 'attribute',
+                ]],
+            ]],
+        ]);
+
+        $this->assertSame([
+            'root' => 'posts',
+            'rootClass' => FakePost::class,
+            'rootType' => 'collection',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakePost::class,
+                'kind' => 'collection',
+            ],
+            'strategy' => 'empty_root_collection',
+        ], $result[0]);
+        $this->assertSame('null_attribute', $result[1]['strategy']);
+    }
 }

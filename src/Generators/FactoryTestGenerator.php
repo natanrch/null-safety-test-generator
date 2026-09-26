@@ -67,6 +67,16 @@ class FactoryTestGenerator
             ];
         }
 
+        if (($scenario['strategy'] ?? null) === 'empty_root_collection') {
+            return [
+                'generated' => true,
+                'code' => sprintf(
+                    '// No %s records are created for this empty collection scenario.',
+                    is_string($modelClass) ? $modelClass : 'model'
+                ),
+            ];
+        }
+
         $root = $scenario['root'] ?? null;
         $property = $scenario['target']['property'] ?? null;
 

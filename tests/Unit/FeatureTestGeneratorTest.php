@@ -210,4 +210,40 @@ PHP,
             $result['code']
         );
     }
+
+    public function test_it_generates_a_feature_test_for_an_empty_paginated_collection(): void
+    {
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'posts',
+            'rootClass' => FakePost::class,
+            'rootType' => 'collection',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakePost::class,
+                'kind' => 'collection',
+            ],
+            'strategy' => 'empty_root_collection',
+        ], [
+            'name' => 'posts.index',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            'test_posts_index_does_not_fail_when_posts_is_empty',
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            '::factory()',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "route('posts.index')",
+            $result['code']
+        );
+    }
 }

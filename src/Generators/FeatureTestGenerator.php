@@ -151,9 +151,18 @@ class FeatureTestGenerator
             $scenario['path']
         );
 
+        $scenarioDescription = implode('_', [$root, ...$path]);
+
+        if (($scenario['strategy'] ?? null) === 'empty_root_collection') {
+            return 'test_' . $routeName
+                . '_does_not_fail_when_'
+                . $scenarioDescription
+                . '_is_empty';
+        }
+
         return 'test_' . $routeName
             . '_does_not_fail_when_'
-            . implode('_', [$root, ...$path])
+            . $scenarioDescription
             . '_is_null';
     }
 

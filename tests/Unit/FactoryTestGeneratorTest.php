@@ -201,6 +201,28 @@ class FactoryTestGeneratorTest extends TestCase
         ], $result);
     }
 
+    public function test_it_generates_no_records_for_an_empty_root_collection(): void
+    {
+        $result = (new FactoryTestGenerator())->generate([
+            'root' => 'posts',
+            'rootClass' => FakePost::class,
+            'rootType' => 'collection',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakePost::class,
+                'kind' => 'collection',
+            ],
+            'strategy' => 'empty_root_collection',
+        ]);
+
+        $this->assertSame([
+            'generated' => true,
+            'code' => '// No ' . FakePost::class
+                . ' records are created for this empty collection scenario.',
+        ], $result);
+    }
+
     private function attributeScenario(string $modelClass): array
     {
         return [

@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Unit;
 use Natan\NullSafetyTestGenerator\Analyzers\BladeAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerViewAnalyzer;
+use Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
 use Natan\NullSafetyTestGenerator\Services\ViewAnalysisService;
@@ -13,6 +14,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithView;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeObject;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakePostControllerWithView;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithRequestInput;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\FakeControllerWithPagination;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeAuthor;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeProfile;
@@ -162,6 +164,26 @@ class ViewAnalysisServiceTest extends TestCase
             'parameter' => 'object_id',
             'valueFrom' => 'model_key',
         ], $result['accesses'][0]['input']);
+    }
+
+    public function test_it_produces_an_empty_scenario_for_a_paginated_view(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakeControllerWithPagination::class,
+            'index',
+            __DIR__ . '/../Fixtures/views/objects/index.blade.php'
+        );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
+        $this->assertSame(
+            'paginatedObjects',
+            $scenarios[0]['root']
+        );
+        $this->assertSame(
+            'empty_root_collection',
+            $scenarios[0]['strategy']
+        );
+        $this->assertSame([], $scenarios[0]['path']);
     }
 
     private function createAnalyzer(): ViewAnalysisService
