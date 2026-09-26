@@ -20,6 +20,7 @@ class PostsShowNullSafetyTest extends TestCase
         );
 
         $this->assertLessThan(500, $response->status());
+        $this->assertNotSame(404, $response->status());
     }
 
     public function test_posts_show_does_not_fail_when_post_author_is_null(): void
@@ -31,6 +32,7 @@ class PostsShowNullSafetyTest extends TestCase
         );
 
         $this->assertLessThan(500, $response->status());
+        $this->assertNotSame(404, $response->status());
     }
 
     public function test_posts_show_does_not_fail_when_post_author_profile_is_null(): void
@@ -42,6 +44,7 @@ class PostsShowNullSafetyTest extends TestCase
         );
 
         $this->assertLessThan(500, $response->status());
+        $this->assertNotSame(404, $response->status());
     }
 
     public function test_posts_show_does_not_fail_when_post_author_profile_name_is_null(): void
@@ -53,5 +56,6 @@ class PostsShowNullSafetyTest extends TestCase
         );
 
         $this->assertLessThan(500, $response->status());
+        $this->assertNotSame(404, $response->status());
     }
 }

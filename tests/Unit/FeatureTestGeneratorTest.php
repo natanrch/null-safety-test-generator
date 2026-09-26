@@ -55,6 +55,7 @@ public function test_posts_show_does_not_fail_when_post_author_is_null(): void
     );
 
     $this->assertLessThan(500, $response->status());
+    $this->assertNotSame(404, $response->status());
 }
 PHP,
             FakePost::class
@@ -252,6 +253,48 @@ PHP,
         );
         $this->assertStringNotContainsString('::factory()', $result['code']);
         $this->assertStringNotContainsString("'post_id' =>", $result['code']);
+        $this->assertStringContainsString(
+            '$this->assertSame(404, $response->status());',
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            '$this->assertLessThan(500, $response->status());',
+            $result['code']
+        );
+    }
+
+    public function test_it_uses_the_configured_status_for_a_missing_request_parameter(): void
+    {
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator(),
+            422
+        ))->generate([
+            'root' => 'post',
+            'rootClass' => FakePost::class,
+            'rootType' => 'object',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'kind' => 'request_parameter',
+                'parameter' => 'post_id',
+            ],
+            'strategy' => 'missing_request_parameter',
+            'input' => [
+                'source' => 'request',
+                'parameter' => 'post_id',
+                'valueFrom' => 'model_key',
+            ],
+        ], [
+            'name' => 'posts.create',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$this->assertSame(422, $response->status());',
+            $result['code']
+        );
     }
 
     public function test_it_generates_a_feature_test_for_an_empty_paginated_collection(): void
@@ -286,6 +329,14 @@ PHP,
         );
         $this->assertStringContainsString(
             "route('posts.index')",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$this->assertLessThan(500, $response->status());',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$this->assertNotSame(404, $response->status());',
             $result['code']
         );
     }

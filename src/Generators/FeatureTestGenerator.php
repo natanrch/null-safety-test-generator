@@ -5,7 +5,8 @@ namespace Natan\NullSafetyTestGenerator\Generators;
 class FeatureTestGenerator
 {
     public function __construct(
-        private FactoryTestGenerator $factoryTestGenerator
+        private FactoryTestGenerator $factoryTestGenerator,
+        private int $missingParameterStatus = 404
     ) 
     {
 
@@ -48,6 +49,7 @@ class FeatureTestGenerator
             4
         );
         $routeCall = $this->generateRouteCall($route, $scenario);
+        $statusAssertions = $this->generateStatusAssertions($scenario);
 
         $code = implode("\n", [
             'public function ' . $methodName . '(): void',
@@ -58,13 +60,30 @@ class FeatureTestGenerator
             '        ' . $routeCall,
             '    );',
             '',
-            '    $this->assertLessThan(500, $response->status());',
+            ...$statusAssertions,
             '}',
         ]);
 
         return [
             'generated' => true,
             'code' => $code,
+        ];
+    }
+
+    private function generateStatusAssertions(array $scenario): array
+    {
+        if (($scenario['strategy'] ?? null) === 'missing_request_parameter') {
+            return [
+                sprintf(
+                    '    $this->assertSame(%d, $response->status());',
+                    $this->missingParameterStatus
+                ),
+            ];
+        }
+
+        return [
+            '    $this->assertLessThan(500, $response->status());',
+            '    $this->assertNotSame(404, $response->status());',
         ];
     }
 
