@@ -112,33 +112,10 @@ class DatabaseColumnInspectorTest extends TestCase
         ], $result);
     }
 
-    public function test_it_uses_first_when_a_model_without_factory_has_a_record(): void
+    public function test_it_does_not_use_an_existing_record_when_the_factory_is_missing(): void
     {
-        Post::factory()->create([
-            'title' => 'Existing title',
-        ]);
+        Post::factory()->create();
 
-        $result = (new FactoryTestGenerator(
-            new DatabaseColumnInspector()
-        ))->generate($this->scenarioFor(
-            'title',
-            PostWithoutFactory::class
-        ));
-
-        $this->assertSame([
-            'generated' => true,
-            'code' => implode("\n", [
-                '$post = \\' . PostWithoutFactory::class
-                    . '::query()->first();',
-                '$post->forceFill([',
-                "    'title' => null,",
-                '])->save();',
-            ]),
-        ], $result);
-    }
-
-    public function test_it_reports_when_a_model_has_neither_factory_nor_record(): void
-    {
         $result = (new FactoryTestGenerator(
             new DatabaseColumnInspector()
         ))->generate($this->scenarioFor(
@@ -149,7 +126,7 @@ class DatabaseColumnInspectorTest extends TestCase
         $this->assertSame([
             'generated' => false,
             'message' => sprintf(
-                'Factory for model %s does not exist and no database record was found; the test could not be generated.',
+                'Factory for model %s does not exist; the test could not be generated.',
                 PostWithoutFactory::class
             ),
         ], $result);

@@ -35,15 +35,7 @@ class FactoryTestGenerator
         }
 
         if (! $this->factoryExists($modelClass)) {
-            if (! $this->modelHasDatabaseRecord($modelClass)) {
-                return $this->factoryAndRecordNotFoundResult($modelClass);
-            }
-
-            return [
-                'generated' => true,
-                'code' => '$' . $variable . ' = \\' . $modelClass
-                    . '::query()->first();',
-            ];
+            return $this->factoryNotFoundResult($modelClass);
         }
 
         if (preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) !== 1) {
@@ -108,38 +100,7 @@ class FactoryTestGenerator
         $missingFactoryModel = $this->findModelWithoutFactory($scenario);
 
         if ($missingFactoryModel !== null) {
-            if (! $this->modelHasDatabaseRecord($missingFactoryModel)) {
-                return $this->factoryAndRecordNotFoundResult(
-                    $missingFactoryModel
-                );
-            }
-
-            if ($missingFactoryModel !== $modelClass) {
-                return [
-                    'generated' => false,
-                    'message' => sprintf(
-                        'Factory for model %s does not exist; an existing record was found, but nested existing-record scenarios are not supported.',
-                        $missingFactoryModel
-                    ),
-                ];
-            }
-
-            $existingRecordCode = $this->generateExistingRecordCode(
-                $scenario,
-                $root,
-                $modelClass,
-                $property,
-                $strategy
-            );
-
-            if ($existingRecordCode === null) {
-                return $this->unsupportedRelationshipPathResult();
-            }
-
-            return [
-                'generated' => true,
-                'code' => $existingRecordCode,
-            ];
+            return $this->factoryNotFoundResult($missingFactoryModel);
         }
 
         if (
@@ -356,50 +317,6 @@ class FactoryTestGenerator
         ];
     }
 
-    private function generateExistingRecordCode(
-        array $scenario,
-        string $root,
-        string $modelClass,
-        string $property,
-        mixed $strategy
-    ): ?string {
-        $lines = [
-            '$' . $root . ' = \\' . $modelClass
-                . '::query()->first();',
-        ];
-
-        if ($strategy === 'null_attribute') {
-            $lines[] = '$' . $root . '->forceFill([';
-            $lines[] = '    ' . var_export($property, true) . ' => null,';
-            $lines[] = '])->save();';
-
-            return implode("\n", $lines);
-        }
-
-        $relation = $scenario['target']['relation'] ?? null;
-
-        if ($strategy === 'missing_relationship' && $relation === 'belongsTo') {
-            $foreignKey = Str::snake($property) . '_id';
-            $lines[] = '$' . $root . '->forceFill([';
-            $lines[] = '    ' . var_export($foreignKey, true) . ' => null,';
-            $lines[] = '])->save();';
-
-            return implode("\n", $lines);
-        }
-
-        if (
-            $strategy === 'missing_relationship'
-            || $strategy === 'empty_collection'
-        ) {
-            $lines[] = '$' . $root . '->'
-                . $property . '()->delete();';
-
-            return implode("\n", $lines);
-        }
-
-        return null;
-    }
-
     private function inspectNullableTarget(
         array $scenario,
         string $strategy
@@ -513,23 +430,7 @@ class FactoryTestGenerator
         }
     }
 
-    private function modelHasDatabaseRecord(string $modelClass): bool
-    {
-        if (
-            ! class_exists($modelClass)
-            || ! is_subclass_of($modelClass, Model::class)
-        ) {
-            return false;
-        }
-
-        try {
-            return $modelClass::query()->first() !== null;
-        } catch (Throwable) {
-            return false;
-        }
-    }
-
-    private function factoryAndRecordNotFoundResult(mixed $modelClass): array
+    private function factoryNotFoundResult(mixed $modelClass): array
     {
         $modelName = is_string($modelClass)
             ? $modelClass
@@ -538,7 +439,7 @@ class FactoryTestGenerator
         return [
             'generated' => false,
             'message' => sprintf(
-                'Factory for model %s does not exist and no database record was found; the test could not be generated.',
+                'Factory for model %s does not exist; the test could not be generated.',
                 $modelName
             ),
         ];
