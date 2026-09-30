@@ -66,6 +66,69 @@ class RouteParameterResolver
         return $resolved;
     }
 
+    public function resolveScalarValues(
+        string $controllerClass,
+        string $controllerMethod,
+        array $routeParameters
+    ): array {
+        try {
+            $method = new ReflectionMethod(
+                $controllerClass,
+                $controllerMethod
+            );
+        } catch (Throwable) {
+            return [];
+        }
+
+        $resolved = [];
+
+        foreach ($routeParameters as $routeParameter) {
+            if (! is_string($routeParameter)) {
+                continue;
+            }
+
+            $parameter = $this->findControllerParameter(
+                $method,
+                $routeParameter
+            );
+
+            if ($parameter === null) {
+                $resolved[$routeParameter] = [
+                    'variable' => Str::camel($routeParameter),
+                    'value' => 'test',
+                ];
+                continue;
+            }
+
+            $type = $parameter->getType();
+
+            if (
+                ! $type instanceof ReflectionNamedType
+                || ! $type->isBuiltin()
+            ) {
+                continue;
+            }
+
+            $resolved[$routeParameter] = [
+                'variable' => $parameter->getName(),
+                'value' => $this->defaultScalarValue($type->getName()),
+            ];
+        }
+
+        return $resolved;
+    }
+
+    private function defaultScalarValue(string $type): mixed
+    {
+        return match ($type) {
+            'int' => 1,
+            'float' => 1.0,
+            'bool' => true,
+            'array' => [],
+            default => 'test',
+        };
+    }
+
     private function findControllerParameter(
         ReflectionMethod $method,
         string $routeParameter

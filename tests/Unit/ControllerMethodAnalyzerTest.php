@@ -203,7 +203,7 @@ class ControllerMethodAnalyzerTest extends TestCase
             'valueFrom' => 'model_key',
         ];
 
-        foreach (['create', 'createOrFail'] as $method) {
+        foreach (['create', 'createOrFail', 'createFromInput'] as $method) {
             $result = $analyzer->getObjectClasses(
                 FakeControllerWithRequestInput::class,
                 $method
@@ -215,5 +215,36 @@ class ControllerMethodAnalyzerTest extends TestCase
                 'input' => $input,
             ], $result['object']);
         }
+    }
+
+    public function test_it_identifies_scalar_request_parameters(): void
+    {
+        $result = (new ControllerMethodAnalyzer())->getScalarRequestInputs(
+            FakeControllerWithRequestInput::class,
+            'filtered'
+        );
+
+        $this->assertSame([
+            [
+                'source' => 'request',
+                'parameter' => 'status',
+                'value' => 'test',
+            ],
+            [
+                'source' => 'request',
+                'parameter' => 'page',
+                'value' => 1,
+            ],
+            [
+                'source' => 'request',
+                'parameter' => 'active',
+                'value' => true,
+            ],
+            [
+                'source' => 'request',
+                'parameter' => 'search',
+                'value' => 'test',
+            ],
+        ], $result);
     }
 }

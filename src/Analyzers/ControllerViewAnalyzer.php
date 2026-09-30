@@ -40,13 +40,22 @@ class ControllerViewAnalyzer
             $method
         );
 
-        return [
+        $result = [
             'view' => $viewName,
             'variables' => $this->getViewVariables(
                 $viewCall,
                 $analyzedVariables
             ),
         ];
+
+        $requestParameters = $this->methodAnalyzer
+            ->getScalarRequestInputs($controllerClass, $method);
+
+        if ($requestParameters !== []) {
+            $result['requestParameters'] = $requestParameters;
+        }
+
+        return $result;
     }
 
     private function findViewCall(

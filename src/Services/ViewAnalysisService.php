@@ -51,6 +51,24 @@ class ViewAnalysisService
             $this->viewPathResolver
         );
         $combinedAccesses = [];
+        $requestPreconditions = [];
+
+        foreach ($controllerAnalysis['variables'] as $root => $variable) {
+            if (
+                ! is_string($root)
+                || ! is_array($variable)
+                || ! is_array($variable['input'] ?? null)
+                || ! is_string($variable['class'] ?? null)
+            ) {
+                continue;
+            }
+
+            $requestPreconditions[] = [
+                'root' => $root,
+                'class' => $variable['class'],
+                'input' => $variable['input'],
+            ];
+        }
 
         foreach ($bladeAccesses as $bladeAccess) {
             $root = $bladeAccess['root'] ?? null;
@@ -96,9 +114,20 @@ class ViewAnalysisService
             $combinedAccesses[] = $combinedAccess;
         }
 
-        return [
+        $result = [
             'view' => $controllerAnalysis['view'],
             'accesses' => $combinedAccesses,
         ];
+
+        if ($requestPreconditions !== []) {
+            $result['requestPreconditions'] = $requestPreconditions;
+        }
+
+        if (is_array($controllerAnalysis['requestParameters'] ?? null)) {
+            $result['requestParameters'] =
+                $controllerAnalysis['requestParameters'];
+        }
+
+        return $result;
     }
 }

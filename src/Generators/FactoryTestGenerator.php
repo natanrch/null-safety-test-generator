@@ -319,13 +319,32 @@ class FactoryTestGenerator
         if (
             in_array(
                 $relationship['relation'],
-                ['hasOne', 'hasMany', 'morphOne', 'morphMany'],
+                [
+                    'hasOne',
+                    'hasMany',
+                    'hasOneThrough',
+                    'hasManyThrough',
+                    'morphOne',
+                    'morphMany',
+                ],
                 true
             )
         ) {
             return $parentFactory
                 . '->has(' . $relatedFactory
                 . ', ' . $relationshipName . ')';
+        }
+
+        if (
+            in_array(
+                $relationship['relation'],
+                ['belongsToMany', 'morphToMany', 'morphedByMany'],
+                true
+            )
+        ) {
+            return $parentFactory
+                . '->hasAttached(' . $relatedFactory
+                . ', [], ' . $relationshipName . ')';
         }
 
         return null;

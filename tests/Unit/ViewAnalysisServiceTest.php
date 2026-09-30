@@ -269,6 +269,54 @@ class ViewAnalysisServiceTest extends TestCase
         $this->assertSame(['name'], $scenarios[0]['path']);
     }
 
+    public function test_it_shares_request_preconditions_with_other_scenarios(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakeControllerWithRequestInput::class,
+            'withCollection',
+            __DIR__ . '/../Fixtures/views/objects/forelse.blade.php'
+        );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
+        $emptyCollection = array_values(array_filter(
+            $scenarios,
+            static fn (array $scenario): bool =>
+                ($scenario['strategy'] ?? null) === 'empty_root_collection'
+        ))[0];
+
+        $this->assertSame('objects', $emptyCollection['root']);
+        $this->assertSame([
+            [
+                'root' => 'object',
+                'class' => AnotherFakeObject::class,
+                'input' => [
+                    'source' => 'request',
+                    'parameter' => 'object_id',
+                    'valueFrom' => 'model_key',
+                ],
+            ],
+        ], $emptyCollection['requestPreconditions']);
+    }
+
+    public function test_it_resolves_relationships_inside_a_bound_component(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakePostControllerWithView::class,
+            'show',
+            __DIR__ . '/../Fixtures/views/blade/component-parent.blade.php'
+        );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
+        $this->assertSame(['author'], $scenarios[0]['path']);
+        $this->assertSame('missing_relationship', $scenarios[0]['strategy']);
+        $this->assertSame(
+            ['author', 'profile'],
+            $scenarios[1]['path']
+        );
+        $this->assertSame('missing_relationship', $scenarios[1]['strategy']);
+        $this->assertCount(2, $scenarios);
+    }
+
     private function createAnalyzer(): ViewAnalysisService
     {
         return new ViewAnalysisService(

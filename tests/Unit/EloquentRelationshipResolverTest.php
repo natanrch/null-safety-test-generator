@@ -79,4 +79,41 @@ class EloquentRelationshipResolverTest extends TestCase
             'relatedClass' => FakePost::class,
         ], $result);
     }
+
+    public function test_it_identifies_the_remaining_eloquent_relationships(): void
+    {
+        $resolver = new EloquentRelationshipResolver();
+        $relationships = [
+            'relatedPosts' => ['belongsToMany', FakePost::class],
+            'distantProfile' => ['hasOneThrough', FakeProfile::class],
+            'distantPosts' => ['hasManyThrough', FakePost::class],
+            'image' => ['morphOne', FakeProfile::class],
+            'images' => ['morphMany', FakeProfile::class],
+            'tags' => ['morphToMany', FakePost::class],
+            'taggedAuthors' => ['morphedByMany', FakePost::class],
+            'parentAuthor' => ['hasOne', FakeAuthor::class],
+        ];
+
+        foreach ($relationships as $method => [$type, $relatedClass]) {
+            $result = $resolver->resolve(FakeAuthor::class, $method);
+
+            $this->assertSame($type, $result['relation']);
+            $this->assertSame($relatedClass, $result['relatedClass']);
+        }
+    }
+
+    public function test_it_identifies_morph_to_without_a_static_related_class(): void
+    {
+        $result = (new EloquentRelationshipResolver())->resolve(
+            FakeAuthor::class,
+            'imageable'
+        );
+
+        $this->assertSame([
+            'model' => FakeAuthor::class,
+            'property' => 'imageable',
+            'kind' => 'relationship',
+            'relation' => 'morphTo',
+        ], $result);
+    }
 }

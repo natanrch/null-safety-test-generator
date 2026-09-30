@@ -249,6 +249,39 @@ class FactoryTestGeneratorTest extends TestCase
         ], $result);
     }
 
+    public function test_it_uses_attached_factories_for_many_to_many_paths(): void
+    {
+        $relationship = [
+            'model' => FakeAuthor::class,
+            'property' => 'relatedPosts',
+            'kind' => 'relationship',
+            'relation' => 'belongsToMany',
+            'relatedClass' => FakePost::class,
+        ];
+        $target = [
+            'model' => FakePost::class,
+            'property' => 'title',
+            'kind' => 'attribute',
+        ];
+
+        $result = (new FactoryTestGenerator())->generate([
+            'root' => 'author',
+            'rootClass' => FakeAuthor::class,
+            'rootType' => 'object',
+            'path' => ['relatedPosts', 'title'],
+            'resolvedPath' => [$relationship, $target],
+            'target' => $target,
+            'strategy' => 'null_attribute',
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            "->hasAttached(\\" . FakePost::class
+                . "::factory()->state(['title' => null]), [], 'relatedPosts')",
+            $result['code']
+        );
+    }
+
     private function attributeScenario(string $modelClass): array
     {
         return [

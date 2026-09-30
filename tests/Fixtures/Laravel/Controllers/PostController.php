@@ -19,4 +19,9 @@ class PostController
             'post' => $redacaoFinal,
         ]);
     }
+
+    public function archive(int $year, string $slug)
+    {
+        return view('posts.show');
+    }
 }

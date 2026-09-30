@@ -41,8 +41,21 @@ class FeatureTestGenerator
             return $routeFactoryResult;
         }
 
+        $requestPreconditionResult = $this->generateRequestPreconditions(
+            $scenario
+        );
+
+        if (($requestPreconditionResult['generated'] ?? false) !== true) {
+            return $requestPreconditionResult;
+        }
+
         $methodName = $this->generateMethodName($scenario, $route);
         $factoryBlocks = $routeFactoryResult['code'];
+        $factoryBlocks = [
+            ...$factoryBlocks,
+            ...$this->generateScalarRouteParameters($route),
+            ...$requestPreconditionResult['code'],
+        ];
         $factoryBlocks[] = $factoryResult['code'];
         $factoryCode = $this->indent(
             implode("\n\n", $factoryBlocks),
@@ -156,6 +169,67 @@ class FeatureTestGenerator
         ];
     }
 
+    private function generateScalarRouteParameters(array $route): array
+    {
+        $code = [];
+
+        foreach ($route['parameterValues'] ?? [] as $parameter) {
+            $variable = $parameter['variable'] ?? null;
+
+            if (! is_string($variable)) {
+                continue;
+            }
+
+            $code[] = '$' . $variable . ' = '
+                . var_export($parameter['value'] ?? 'test', true) . ';';
+        }
+
+        return $code;
+    }
+
+    private function generateRequestPreconditions(array $scenario): array
+    {
+        $code = [];
+
+        foreach ($scenario['requestPreconditions'] ?? [] as $precondition) {
+            $root = $precondition['root'] ?? null;
+            $modelClass = $precondition['class'] ?? null;
+
+            if (! is_string($root) || ! is_string($modelClass)) {
+                continue;
+            }
+
+            if (
+                $root === ($scenario['root'] ?? null)
+                || $this->isOmittedRequestPrecondition($scenario, $precondition)
+            ) {
+                continue;
+            }
+
+            $factory = $this->factoryTestGenerator->generateRouteParameter(
+                $root,
+                $modelClass
+            );
+
+            if (($factory['generated'] ?? false) !== true) {
+                return $factory;
+            }
+
+            $code[] = $factory['code'];
+        }
+
+        return ['generated' => true, 'code' => $code];
+    }
+
+    private function isOmittedRequestPrecondition(
+        array $scenario,
+        array $precondition
+    ): bool {
+        return ($scenario['strategy'] ?? null) === 'missing_request_parameter'
+            && ($scenario['input']['parameter'] ?? null)
+                === ($precondition['input']['parameter'] ?? null);
+    }
+
     private function generateMethodName(
         array $scenario,
         array $route
@@ -226,6 +300,51 @@ class FeatureTestGenerator
                 . ' => $' . $variable;
         }
 
+        foreach ($scenario['requestPreconditions'] ?? [] as $precondition) {
+            $input = $precondition['input'] ?? null;
+            $root = $precondition['root'] ?? null;
+
+            if (
+                ! is_array($input)
+                || ! is_string($root)
+                || ($input['source'] ?? null) !== 'request'
+                || ($input['valueFrom'] ?? null) !== 'model_key'
+                || ! is_string($input['parameter'] ?? null)
+                || array_key_exists($input['parameter'], $parameters)
+                || $this->isOmittedRequestPrecondition(
+                    $scenario,
+                    $precondition
+                )
+            ) {
+                continue;
+            }
+
+            $generatedParameters[$input['parameter']] = var_export(
+                $input['parameter'],
+                true
+            ) . ' => $' . $root . '->getKey()';
+        }
+
+        foreach ($scenario['requestParameters'] ?? [] as $requestParameter) {
+            $parameter = $requestParameter['parameter'] ?? null;
+
+            if (
+                ! is_string($parameter)
+                || array_key_exists($parameter, $parameters)
+                || (
+                    ($scenario['strategy'] ?? null)
+                        === 'missing_request_parameter'
+                    && ($scenario['input']['parameter'] ?? null) === $parameter
+                )
+            ) {
+                continue;
+            }
+
+            $generatedParameters[$parameter] = var_export($parameter, true)
+                . ' => '
+                . var_export($requestParameter['value'] ?? 'test', true);
+        }
+
         $input = $scenario['input'] ?? null;
 
         if (
@@ -236,7 +355,7 @@ class FeatureTestGenerator
             && is_string($input['parameter'] ?? null)
             && ! array_key_exists($input['parameter'], $parameters)
         ) {
-            $generatedParameters[] = var_export(
+            $generatedParameters[$input['parameter']] = var_export(
                 $input['parameter'],
                 true
             ) . ' => $' . $scenario['root'] . '->getKey()';
@@ -247,7 +366,7 @@ class FeatureTestGenerator
         }
 
         return 'route(' . $routeName . ', ['
-            . implode(', ', $generatedParameters)
+            . implode(', ', array_values($generatedParameters))
             . '])';
     }
 

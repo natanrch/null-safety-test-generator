@@ -7,6 +7,9 @@ use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeAuthor;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeProfile;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\TypedPost;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\ValueObjects\FakeAddress;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\ValueObjects\FakeCoordinates;
 use PHPUnit\Framework\TestCase;
 
 class EloquentAccessChainResolverTest extends TestCase
@@ -78,5 +81,23 @@ class EloquentAccessChainResolverTest extends TestCase
                 'relatedClass' => FakePost::class,
             ],
         ], $result);
+    }
+
+    public function test_it_resolves_casts_accessors_and_value_objects(): void
+    {
+        $result = (new EloquentAccessChainResolver(
+            new EloquentRelationshipResolver()
+        ))->resolve(TypedPost::class, [
+            ['type' => 'property', 'name' => 'address'],
+            ['type' => 'property', 'name' => 'coordinates'],
+            ['type' => 'property', 'name' => 'latitude'],
+        ]);
+
+        $this->assertSame(FakeAddress::class, $result[0]['valueClass']);
+        $this->assertSame('accessor', $result[0]['valueSource']);
+        $this->assertSame(FakeCoordinates::class, $result[1]['valueClass']);
+        $this->assertSame('value_object', $result[1]['valueSource']);
+        $this->assertSame(FakeCoordinates::class, $result[2]['model']);
+        $this->assertSame('latitude', $result[2]['property']);
     }
 }

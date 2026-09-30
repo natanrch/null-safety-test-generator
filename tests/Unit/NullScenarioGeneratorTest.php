@@ -419,6 +419,40 @@ class NullScenarioGeneratorTest extends TestCase
         $this->assertSame([], $result);
     }
 
+    public function test_it_generates_only_the_nullable_object_attribute_in_a_value_object_chain(): void
+    {
+        $result = (new NullScenarioGenerator())->generate([
+            'view' => 'posts.show',
+            'accesses' => [[
+                'root' => 'post',
+                'class' => FakePost::class,
+                'type' => 'object',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'address'],
+                    ['type' => 'property', 'name' => 'street'],
+                ],
+                'resolvedAccesses' => [
+                    [
+                        'model' => FakePost::class,
+                        'property' => 'address',
+                        'kind' => 'attribute',
+                        'valueClass' => FakeProfile::class,
+                        'valueSource' => 'accessor',
+                    ],
+                    [
+                        'model' => FakeProfile::class,
+                        'property' => 'street',
+                        'kind' => 'attribute',
+                    ],
+                ],
+            ]],
+        ]);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(['address'], $result[0]['path']);
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
     private function generateAttributeScenarios(
         array $accesses,
         ?string $usage = null,

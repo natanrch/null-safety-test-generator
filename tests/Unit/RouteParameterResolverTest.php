@@ -53,4 +53,18 @@ class RouteParameterResolverTest extends TestCase
             ],
         ], $result);
     }
+
+    public function test_it_resolves_scalar_route_parameter_values(): void
+    {
+        $result = (new RouteParameterResolver())->resolveScalarValues(
+            PostController::class,
+            'archive',
+            ['year', 'slug']
+        );
+
+        $this->assertSame([
+            'year' => ['variable' => 'year', 'value' => 1],
+            'slug' => ['variable' => 'slug', 'value' => 'test'],
+        ], $result);
+    }
 }

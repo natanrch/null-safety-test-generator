@@ -17,26 +17,29 @@ class BladeAnalyzer
         return $this->analyzeFile(
             $viewPath,
             $viewPathResolver,
-            $visitedPaths
+            $visitedPaths,
+            []
         );
     }
 
     private function analyzeFile(
         string $viewPath,
         ?ViewPathResolver $viewPathResolver,
-        array &$visitedPaths
+        array &$visitedPaths,
+        array $aliases
     ): array
     {
         $resolvedViewPath = realpath($viewPath);
 
-        if (
-            $resolvedViewPath === false
-            || isset($visitedPaths[$resolvedViewPath])
-        ) {
+        $visitKey = $resolvedViewPath === false
+            ? null
+            : $resolvedViewPath . '|' . serialize($aliases);
+
+        if ($resolvedViewPath === false || isset($visitedPaths[$visitKey])) {
             return [];
         }
 
-        $visitedPaths[$resolvedViewPath] = true;
+        $visitedPaths[$visitKey] = true;
         $blade = file_get_contents($viewPath);
 
         if ($blade === false) {
@@ -56,9 +59,9 @@ class BladeAnalyzer
 
         $accesses = [];
 
-        $this->analyzeStatements($ast, [], $accesses);
+        $this->analyzeStatements($ast, $aliases, $accesses);
 
-        foreach ($this->extractIncludedViewNames($blade) as $viewName) {
+        foreach ($this->extractInheritedViewNames($blade) as $viewName) {
             $includedPath = $this->resolveIncludedViewPath(
                 $viewName,
                 $resolvedViewPath,
@@ -74,7 +77,31 @@ class BladeAnalyzer
                 ...$this->analyzeFile(
                     $includedPath,
                     $viewPathResolver,
-                    $visitedPaths
+                    $visitedPaths,
+                    []
+                ),
+            ];
+        }
+
+
+        foreach ($this->extractBladeComponents($blade) as $component) {
+            $includedPath = $this->resolveIncludedViewPath(
+                $component['view'],
+                $resolvedViewPath,
+                $viewPathResolver
+            );
+
+            if ($includedPath === null) {
+                continue;
+            }
+
+            $accesses = [
+                ...$accesses,
+                ...$this->analyzeFile(
+                    $includedPath,
+                    $viewPathResolver,
+                    $visitedPaths,
+                    $component['aliases']
                 ),
             ];
         }
@@ -82,10 +109,11 @@ class BladeAnalyzer
         return $this->uniqueAccesses($accesses);
     }
 
-    private function extractIncludedViewNames(string $blade): array
+    private function extractInheritedViewNames(string $blade): array
     {
         $matched = preg_match_all(
-            '/@include(?:If)?\s*\(\s*([\'\"])([^\'\"]+)\1/',
+            '/@(?:include(?:If|When|Unless)?|extends)\s*'
+                . '\(\s*([\'\"])([^\'\"]+)\1/',
             $blade,
             $matches
         );
@@ -95,6 +123,91 @@ class BladeAnalyzer
         }
 
         return array_values(array_unique($matches[2]));
+    }
+
+    private function extractBladeComponents(string $blade): array
+    {
+        $matched = preg_match_all(
+            '/<x-([a-zA-Z0-9_.-]+)\b'
+                . '((?:"[^"]*"|\'[^\']*\'|[^>])*)>/',
+            $blade,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        if ($matched === false || $matched === 0) {
+            return [];
+        }
+
+        $components = [];
+
+        foreach ($matches as $match) {
+            $view = 'components.' . $match[1];
+            $aliases = $this->extractComponentAliases($match[2]);
+            $components[$view . '|' . serialize($aliases)] = [
+                'view' => $view,
+                'aliases' => $aliases,
+            ];
+        }
+
+        return array_values($components);
+    }
+
+    private function extractComponentAliases(string $attributes): array
+    {
+        $matched = preg_match_all(
+            '/:([a-zA-Z_][a-zA-Z0-9_-]*)\s*=\s*"([^"]+)"/',
+            $attributes,
+            $matches,
+            PREG_SET_ORDER
+        );
+
+        if ($matched === false || $matched === 0) {
+            return [];
+        }
+
+        $aliases = [];
+
+        foreach ($matches as $match) {
+            $access = $this->parseSimpleBladeAccess($match[2]);
+
+            if ($access !== null) {
+                $aliases[$match[1]] = $access;
+            }
+        }
+
+        return $aliases;
+    }
+
+    private function parseSimpleBladeAccess(string $expression): ?array
+    {
+        $matched = preg_match(
+            '/^\$([a-zA-Z_][a-zA-Z0-9_]*)'
+                . '((?:->[a-zA-Z_][a-zA-Z0-9_]*)*)$/',
+            trim($expression),
+            $matches
+        );
+
+        if ($matched !== 1) {
+            return null;
+        }
+
+        preg_match_all(
+            '/->([a-zA-Z_][a-zA-Z0-9_]*)/',
+            $matches[2],
+            $properties
+        );
+
+        return [
+            'root' => $matches[1],
+            'accesses' => array_map(
+                static fn (string $property): array => [
+                    'type' => 'property',
+                    'name' => $property,
+                ],
+                $properties[1]
+            ),
+        ];
     }
 
     private function resolveIncludedViewPath(

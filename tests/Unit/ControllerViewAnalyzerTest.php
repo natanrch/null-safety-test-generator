@@ -75,4 +75,34 @@ class ControllerViewAnalyzerTest extends TestCase
             ],
         ], $result['variables']['object']);
     }
+
+    public function test_it_preserves_scalar_request_parameters(): void
+    {
+        $result = (new ControllerViewAnalyzer(
+            new ControllerMethodAnalyzer()
+        ))->analyze(FakeControllerWithRequestInput::class, 'filtered');
+
+        $this->assertSame([
+            [
+                'source' => 'request',
+                'parameter' => 'status',
+                'value' => 'test',
+            ],
+            [
+                'source' => 'request',
+                'parameter' => 'page',
+                'value' => 1,
+            ],
+            [
+                'source' => 'request',
+                'parameter' => 'active',
+                'value' => true,
+            ],
+            [
+                'source' => 'request',
+                'parameter' => 'search',
+                'value' => 'test',
+            ],
+        ], $result['requestParameters']);
+    }
 }

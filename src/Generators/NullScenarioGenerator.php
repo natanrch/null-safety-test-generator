@@ -146,7 +146,24 @@ class NullScenarioGenerator
             }
         }
 
-        return $scenarios;
+        return array_map(
+            function (array $scenario) use ($viewAnalysis): array {
+                $preconditions = $viewAnalysis['requestPreconditions'] ?? [];
+
+                if (is_array($preconditions) && $preconditions !== []) {
+                    $scenario['requestPreconditions'] = $preconditions;
+                }
+
+                $parameters = $viewAnalysis['requestParameters'] ?? [];
+
+                if (is_array($parameters) && $parameters !== []) {
+                    $scenario['requestParameters'] = $parameters;
+                }
+
+                return $scenario;
+            },
+            $scenarios
+        );
     }
 
     private function hasValidRootMetadata(array $analyzedAccess): bool

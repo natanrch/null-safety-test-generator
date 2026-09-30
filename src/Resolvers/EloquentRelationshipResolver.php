@@ -20,6 +20,7 @@ class EloquentRelationshipResolver
         'hasManyThrough',
         'morphOne',
         'morphMany',
+        'morphTo',
         'morphToMany',
         'morphedByMany',
     ];
@@ -98,19 +99,27 @@ class EloquentRelationshipResolver
             return null;
         }
 
-        $relatedClass = $this->getRelatedClass($relationshipCall);
+        $relatedClass = $this->getRelatedClass(
+            $relationshipCall,
+            $modelClass
+        );
 
-        if ($relatedClass === null) {
+        if ($relatedClass === null && $relationshipType !== 'morphTo') {
             return null;
         }
 
-        return [
+        $result = [
             'model' => $modelClass,
             'property' => $property,
             'kind' => 'relationship',
             'relation' => $relationshipType,
-            'relatedClass' => $relatedClass,
         ];
+
+        if ($relatedClass !== null) {
+            $result['relatedClass'] = $relatedClass;
+        }
+
+        return $result;
     }
 
     private function findRelationshipCall(
@@ -141,7 +150,8 @@ class EloquentRelationshipResolver
     }
 
     private function getRelatedClass(
-        Node\Expr\MethodCall $relationshipCall
+        Node\Expr\MethodCall $relationshipCall,
+        string $modelClass
     ): ?string {
         $argument = $relationshipCall->args[0] ?? null;
 
@@ -162,6 +172,12 @@ class EloquentRelationshipResolver
             return null;
         }
 
-        return $classConstant->class->toString();
+        $relatedClass = $classConstant->class->toString();
+
+        return match (strtolower($relatedClass)) {
+            'self', 'static' => $modelClass,
+            'parent' => get_parent_class($modelClass) ?: null,
+            default => $relatedClass,
+        };
     }
 }

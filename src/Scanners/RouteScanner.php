@@ -38,8 +38,14 @@ class RouteScanner
                 $controllerClass,
                 $controllerMethod
             );
+            $parameterValues = $this->resolveParameterValues(
+                $route,
+                $controllerClass,
+                $controllerMethod,
+                $parameterModels
+            );
 
-            return [
+            $result = [
                 'name' => $route->getName(),
                 'method' => $httpMethod,
                 'parameters' => $this->getParameters(
@@ -48,6 +54,12 @@ class RouteScanner
                 ),
                 'parameterModels' => $parameterModels,
             ];
+
+            if ($parameterValues !== []) {
+                $result['parameterValues'] = $parameterValues;
+            }
+
+            return $result;
         }
 
         return null;
@@ -73,8 +85,14 @@ class RouteScanner
                 $controllerAction['controller'],
                 $controllerAction['method']
             );
+            $parameterValues = $this->resolveParameterValues(
+                $route,
+                $controllerAction['controller'],
+                $controllerAction['method'],
+                $parameterModels
+            );
 
-            $routes[] = [
+            $resolvedRoute = [
                 'name' => $route->getName(),
                 'method' => 'GET',
                 'parameters' => $this->getParameters(
@@ -85,6 +103,12 @@ class RouteScanner
                 'controllerMethod' => $controllerAction['method'],
                 'parameterModels' => $parameterModels,
             ];
+
+            if ($parameterValues !== []) {
+                $resolvedRoute['parameterValues'] = $parameterValues;
+            }
+
+            $routes[] = $resolvedRoute;
         }
 
         return $routes;
@@ -154,6 +178,25 @@ class RouteScanner
             $controllerClass,
             $controllerMethod,
             $route->parameterNames()
+        );
+    }
+
+    private function resolveParameterValues(
+        Route $route,
+        string $controllerClass,
+        string $controllerMethod,
+        array $parameterModels
+    ): array {
+        $scalarParameters = array_values(array_filter(
+            $route->parameterNames(),
+            static fn (string $parameter): bool =>
+                ! isset($parameterModels[$parameter])
+        ));
+
+        return $this->routeParameterResolver->resolveScalarValues(
+            $controllerClass,
+            $controllerMethod,
+            $scalarParameters
         );
     }
 }

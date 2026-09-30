@@ -295,6 +295,40 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_recursively_analyzes_an_extended_layout(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('extends-layout.blade.php')
+        );
+
+        $this->assertContains([
+            'root' => 'object',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'relation'],
+                ['type' => 'property', 'name' => 'layoutName'],
+            ],
+        ], $result);
+    }
+
+    public function test_it_resolves_bound_properties_in_blade_components(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('component-parent.blade.php')
+        );
+
+        $this->assertSame([
+            [
+                'root' => 'post',
+                'alias' => 'author',
+                'accesses' => [
+                    ['type' => 'property', 'name' => 'author'],
+                    ['type' => 'property', 'name' => 'profile'],
+                    ['type' => 'property', 'name' => 'name'],
+                ],
+            ],
+        ], $result);
+    }
+
     public function test_it_ignores_single_and_multiline_blade_comments(): void
     {
         $result = (new BladeAnalyzer())->analyze(

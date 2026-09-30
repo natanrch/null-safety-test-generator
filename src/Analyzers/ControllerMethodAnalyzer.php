@@ -43,6 +43,135 @@ class ControllerMethodAnalyzer
         );
     }
 
+    public function getScalarRequestInputs(
+        string $controllerClass,
+        string $method
+    ): array {
+        $reflectionMethod = new ReflectionMethod($controllerClass, $method);
+        $requestVariables = $this->getRequestParameterNames($reflectionMethod);
+        $classMethod = $this->parseClassMethod($reflectionMethod, $method);
+
+        if ($requestVariables === [] || $classMethod === null) {
+            return [];
+        }
+
+        $nodeFinder = new NodeFinder();
+        $inputs = [];
+
+        foreach ($nodeFinder->findInstanceOf(
+            $classMethod->stmts ?? [],
+            Node\Expr\PropertyFetch::class
+        ) as $propertyFetch) {
+            if (
+                ! $propertyFetch->var instanceof Node\Expr\Variable
+                || ! is_string($propertyFetch->var->name)
+                || ! isset($requestVariables[$propertyFetch->var->name])
+                || ! $propertyFetch->name instanceof Node\Identifier
+            ) {
+                continue;
+            }
+
+            $parameter = $propertyFetch->name->toString();
+            $inputs[$parameter] = $this->scalarRequestInput(
+                $parameter,
+                'property'
+            );
+        }
+
+        foreach ($nodeFinder->findInstanceOf(
+            $classMethod->stmts ?? [],
+            Node\Expr\MethodCall::class
+        ) as $methodCall) {
+            if (
+                ! $methodCall->var instanceof Node\Expr\Variable
+                || ! is_string($methodCall->var->name)
+                || ! isset($requestVariables[$methodCall->var->name])
+                || ! $methodCall->name instanceof Node\Identifier
+            ) {
+                continue;
+            }
+
+            $accessor = $methodCall->name->toString();
+
+            if (! in_array($accessor, [
+                'input', 'query', 'get', 'string', 'integer', 'boolean',
+            ], true)) {
+                continue;
+            }
+
+            $argument = $methodCall->args[0]->value ?? null;
+
+            if (! $argument instanceof Node\Scalar\String_) {
+                continue;
+            }
+
+            $parameter = $argument->value;
+            $inputs[$parameter] = $this->scalarRequestInput(
+                $parameter,
+                $accessor
+            );
+        }
+
+        foreach ($this->getObjectClasses($controllerClass, $method) as $object) {
+            $modelParameter = $object['input']['parameter'] ?? null;
+
+            if (is_string($modelParameter)) {
+                unset($inputs[$modelParameter]);
+            }
+        }
+
+        return array_values($inputs);
+    }
+
+    private function scalarRequestInput(
+        string $parameter,
+        string $accessor
+    ): array {
+        return [
+            'source' => 'request',
+            'parameter' => $parameter,
+            'value' => match ($accessor) {
+                'integer' => 1,
+                'boolean' => true,
+                default => 'test',
+            },
+        ];
+    }
+
+    private function parseClassMethod(
+        ReflectionMethod $reflectionMethod,
+        string $method
+    ): ?Node\Stmt\ClassMethod {
+        $fileName = $reflectionMethod->getFileName();
+        $code = $fileName === false ? false : file_get_contents($fileName);
+
+        if ($code === false) {
+            return null;
+        }
+
+        $ast = (new ParserFactory())
+            ->createForNewestSupportedVersion()
+            ->parse($code);
+
+        if ($ast === null) {
+            return null;
+        }
+
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor(new NameResolver());
+        $ast = $traverser->traverse($ast);
+
+        $classMethod = (new NodeFinder())->findFirst(
+            $ast,
+            fn (Node $node): bool => $node instanceof Node\Stmt\ClassMethod
+                && $node->name->toString() === $method
+        );
+
+        return $classMethod instanceof Node\Stmt\ClassMethod
+            ? $classMethod
+            : null;
+    }
+
     private function getParameterClasses(
         string $controllerClass,
         string $method
@@ -229,20 +358,41 @@ class ControllerMethodAnalyzer
         $argument = $expression->args[0]->value ?? null;
 
         if (
-            ! $argument instanceof Node\Expr\PropertyFetch
-            || ! $argument->var instanceof Node\Expr\Variable
-            || ! is_string($argument->var->name)
-            || ! isset($requestVariables[$argument->var->name])
-            || ! $argument->name instanceof Node\Identifier
+            $argument instanceof Node\Expr\PropertyFetch
+            && $argument->var instanceof Node\Expr\Variable
+            && is_string($argument->var->name)
+            && isset($requestVariables[$argument->var->name])
+            && $argument->name instanceof Node\Identifier
         ) {
-            return null;
+            return [
+                'source' => 'request',
+                'parameter' => $argument->name->toString(),
+                'valueFrom' => 'model_key',
+            ];
         }
 
-        return [
-            'source' => 'request',
-            'parameter' => $argument->name->toString(),
-            'valueFrom' => 'model_key',
-        ];
+        if (
+            $argument instanceof Node\Expr\MethodCall
+            && $argument->var instanceof Node\Expr\Variable
+            && is_string($argument->var->name)
+            && isset($requestVariables[$argument->var->name])
+            && $argument->name instanceof Node\Identifier
+            && in_array(
+                $argument->name->toString(),
+                ['input', 'query', 'get', 'integer'],
+                true
+            )
+            && ($argument->args[0]->value ?? null)
+                instanceof Node\Scalar\String_
+        ) {
+            return [
+                'source' => 'request',
+                'parameter' => $argument->args[0]->value->value,
+                'valueFrom' => 'model_key',
+            ];
+        }
+
+        return null;
     }
 
     private function getRootClassFromExpression(

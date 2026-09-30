@@ -95,4 +95,23 @@ class RouteScannerTest extends TestCase
             ],
         ], $result['parameterModels']);
     }
+
+    public function test_it_resolves_scalar_route_parameters(): void
+    {
+        $router = $this->app->make(Router::class);
+        $router->get(
+            '/archive/{year}/{slug}',
+            [PostController::class, 'archive']
+        )->name('posts.archive');
+
+        $result = (new RouteScanner($router))->find(
+            PostController::class,
+            'archive'
+        );
+
+        $this->assertSame([
+            'year' => ['variable' => 'year', 'value' => 1],
+            'slug' => ['variable' => 'slug', 'value' => 'test'],
+        ], $result['parameterValues']);
+    }
 }

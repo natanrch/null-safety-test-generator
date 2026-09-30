@@ -7,6 +7,7 @@ use Natan\NullSafetyTestGenerator\Generators\FeatureTestGenerator;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeAuthor;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post as RoutePost;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author as RouteAuthor;
 use PHPUnit\Framework\TestCase;
 
 class FeatureTestGeneratorTest extends TestCase
@@ -337,6 +338,83 @@ PHP,
         );
         $this->assertStringContainsString(
             '$this->assertNotSame(404, $response->status());',
+            $result['code']
+        );
+    }
+
+    public function test_it_creates_shared_request_model_preconditions(): void
+    {
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'posts',
+            'rootClass' => FakePost::class,
+            'rootType' => 'collection',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => ['model' => FakePost::class, 'kind' => 'collection'],
+            'strategy' => 'empty_root_collection',
+            'requestPreconditions' => [[
+                'root' => 'author',
+                'class' => RouteAuthor::class,
+                'input' => [
+                    'source' => 'request',
+                    'parameter' => 'author_id',
+                    'valueFrom' => 'model_key',
+                ],
+            ]],
+        ], [
+            'name' => 'posts.index',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$author = \\' . RouteAuthor::class . '::factory()->create();',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "route('posts.index', ['author_id' => \$author->getKey()])",
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_scalar_route_and_request_parameters(): void
+    {
+        $target = [
+            'model' => FakePost::class,
+            'property' => 'title',
+            'kind' => 'attribute',
+        ];
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'post',
+            'rootClass' => FakePost::class,
+            'rootType' => 'object',
+            'path' => ['title'],
+            'resolvedPath' => [$target],
+            'target' => $target,
+            'strategy' => 'null_attribute',
+            'requestParameters' => [[
+                'source' => 'request',
+                'parameter' => 'filter',
+                'value' => 'active',
+            ]],
+        ], [
+            'name' => 'posts.archive',
+            'method' => 'GET',
+            'parameters' => ['year' => 'year'],
+            'parameterValues' => [
+                'year' => ['variable' => 'year', 'value' => 2026],
+            ],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString('$year = 2026;', $result['code']);
+        $this->assertStringContainsString(
+            "route('posts.archive', ['year' => \$year, 'filter' => 'active'])",
             $result['code']
         );
     }
