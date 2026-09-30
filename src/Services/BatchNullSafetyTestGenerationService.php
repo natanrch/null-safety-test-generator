@@ -11,7 +11,8 @@ class BatchNullSafetyTestGenerationService
     public function __construct(
         private RouteScanner $routeScanner,
         private NullSafetyTestGenerationService $testGenerationService,
-        private FeatureTestFileGenerator $fileGenerator
+        private FeatureTestFileGenerator $fileGenerator,
+        private WriteTestGenerationService $writeTestGenerationService
     ) {
     }
 
@@ -20,7 +21,10 @@ class BatchNullSafetyTestGenerationService
         $testMethods = [];
         $warnings = [];
         $analyzedRoutes = 0;
-        $routes = $this->routeScanner->allGetControllerRoutes();
+        $routes = [
+            ...$this->routeScanner->allGetControllerRoutes(),
+            ...$this->routeScanner->allWriteControllerRoutes(),
+        ];
         $totalRoutes = count($routes);
 
         foreach ($routes as $index => $route) {
@@ -50,11 +54,17 @@ class BatchNullSafetyTestGenerationService
             }
 
             try {
-                $result = $this->testGenerationService->generateMethods(
-                    $controller,
-                    $controllerMethod,
-                    $route
-                );
+                $result = $this->isWriteRoute($route)
+                    ? $this->writeResult(
+                        $controller,
+                        $controllerMethod,
+                        $route
+                    )
+                    : $this->testGenerationService->generateMethods(
+                        $controller,
+                        $controllerMethod,
+                        $route
+                    );
             } catch (Throwable $exception) {
                 $warnings[] = sprintf(
                     '%s: The route could not be analyzed: %s',
@@ -160,6 +170,38 @@ class BatchNullSafetyTestGenerationService
         return ($route['controller'] ?? 'UnknownController')
             . '@'
             . ($route['controllerMethod'] ?? 'unknownMethod');
+    }
+
+    private function isWriteRoute(array $route): bool
+    {
+        return in_array(
+            strtoupper($route['method'] ?? ''),
+            ['POST', 'PUT', 'PATCH'],
+            true
+        );
+    }
+
+    private function writeResult(
+        string $controller,
+        string $controllerMethod,
+        array $route
+    ): array {
+        $result = $this->writeTestGenerationService->generateMethod(
+            $controller,
+            $controllerMethod,
+            $route
+        );
+
+        if (($result['generated'] ?? false) !== true) {
+            return $result;
+        }
+
+        return [
+            'generated' => true,
+            'testMethods' => [$result['code']],
+            'route' => $route,
+            'warnings' => [],
+        ];
     }
 
     private function reportProgress(

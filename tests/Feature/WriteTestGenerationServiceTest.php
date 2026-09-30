@@ -1,0 +1,103 @@
+<?php
+
+namespace Natan\NullSafetyTestGenerator\Tests\Feature;
+
+use Illuminate\Routing\Router;
+use Natan\NullSafetyTestGenerator\Services\WriteTestGenerationService;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Natan\NullSafetyTestGenerator\Tests\TestCase;
+
+class WriteTestGenerationServiceTest extends TestCase
+{
+    public function test_it_generates_a_complete_put_feature_test_file(): void
+    {
+        $this->app->make(Router::class)
+            ->put('/posts/{post}', [PostController::class, 'update'])
+            ->name('posts.update');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'update');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(
+            'PostsUpdateWriteSafetyTest.php',
+            $result['fileName']
+        );
+        $this->assertStringContainsString(
+            'class PostsUpdateWriteSafetyTest extends TestCase',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$response = $this->put(',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$this->assertLessThan(500, $response->status());',
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_a_post_file_with_validated_payload(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts', [PostController::class, 'storeInline'])
+            ->name('posts.store');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'storeInline');
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            "['title' => 'test', 'active' => true, "
+                . "'status' => 'draft', 'category_id' => \$category->id, 'tags' => []]",
+            $result['code']
+        );
+    }
+
+    public function test_it_creates_the_exists_model_and_nulls_only_accessed_nullable_columns(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/category', [PostController::class, 'storeWithExistingCategory'])
+            ->name('posts.category.store');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'storeWithExistingCategory');
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            "::factory()->create(['description' => null]);",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "['category_id' => \$category->id]",
+            $result['code']
+        );
+        $this->assertStringNotContainsString("'name' => null", $result['code']);
+    }
+
+    public function test_it_reports_that_the_exists_model_factory_does_not_exist(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/category-without-factory', [
+                PostController::class,
+                'storeWithExistingCategoryWithoutFactory',
+            ])
+            ->name('posts.category-without-factory.store');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(
+                PostController::class,
+                'storeWithExistingCategoryWithoutFactory'
+            );
+
+        $this->assertFalse($result['generated']);
+        $this->assertStringContainsString(
+            'does not exist; the test could not be generated.',
+            $result['message']
+        );
+    }
+}

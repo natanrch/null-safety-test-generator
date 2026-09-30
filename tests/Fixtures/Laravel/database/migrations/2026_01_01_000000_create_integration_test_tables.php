@@ -32,10 +32,25 @@ return new class extends Migration
             $table->string('title')->nullable();
             $table->timestamps();
         });
+
+        Schema::create('categories', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('description')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('categories_without_factories', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
     }
 
     public function down(): void
     {
+        Schema::dropIfExists('categories_without_factories');
+        Schema::dropIfExists('categories');
         Schema::dropIfExists('posts');
         Schema::dropIfExists('profiles');
         Schema::dropIfExists('authors');

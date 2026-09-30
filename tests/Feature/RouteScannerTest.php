@@ -114,4 +114,27 @@ class RouteScannerTest extends TestCase
             'slug' => ['variable' => 'slug', 'value' => 'test'],
         ], $result['parameterValues']);
     }
+
+    public function test_it_lists_post_put_and_patch_controller_routes(): void
+    {
+        $router = $this->app->make(Router::class);
+        $router->post('/posts', [PostController::class, 'store'])
+            ->name('posts.store');
+        $router->put('/posts/{post}', [PostController::class, 'update'])
+            ->name('posts.update');
+        $router->patch('/posts/{post}', [PostController::class, 'patch'])
+            ->name('posts.patch');
+
+        $routes = (new RouteScanner($router))->allWriteControllerRoutes();
+
+        $this->assertSame(
+            ['POST', 'PUT', 'PATCH'],
+            array_column($routes, 'method')
+        );
+        $this->assertSame(
+            ['posts.store', 'posts.update', 'posts.patch'],
+            array_column($routes, 'name')
+        );
+        $this->assertSame(Post::class, $routes[1]['parameterModels']['post']['class']);
+    }
 }

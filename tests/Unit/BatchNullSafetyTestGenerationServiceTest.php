@@ -6,6 +6,7 @@ use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
 use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 use Natan\NullSafetyTestGenerator\Services\BatchNullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
+use Natan\NullSafetyTestGenerator\Services\WriteTestGenerationService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -19,6 +20,9 @@ class BatchNullSafetyTestGenerationServiceTest extends TestCase
         );
         $fileGenerator = $this->createMock(
             FeatureTestFileGenerator::class
+        );
+        $writeGenerator = $this->createMock(
+            WriteTestGenerationService::class
         );
 
         $invalidRoute = [
@@ -74,7 +78,8 @@ class BatchNullSafetyTestGenerationServiceTest extends TestCase
         $result = (new BatchNullSafetyTestGenerationService(
             $routeScanner,
             $generator,
-            $fileGenerator
+            $fileGenerator,
+            $writeGenerator
         ))->generate(
             static function (array $event) use (&$events): void {
                 $events[] = $event;

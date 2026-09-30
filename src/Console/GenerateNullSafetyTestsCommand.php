@@ -5,13 +5,15 @@ namespace Natan\NullSafetyTestGenerator\Console;
 use Illuminate\Console\Command;
 use Natan\NullSafetyTestGenerator\Services\BatchNullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
+use Natan\NullSafetyTestGenerator\Services\WriteTestGenerationService;
+use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 use Natan\NullSafetyTestGenerator\Writers\GeneratedTestFileWriter;
 use Throwable;
 
 class GenerateNullSafetyTestsCommand extends Command
 {
     protected $signature = 'null-safety:generate
-        {--all : Generate tests for all GET controller routes that return views}
+        {--all : Generate tests for all supported GET, POST, PUT and PATCH controller routes}
         {--controller= : Fully qualified controller class}
         {--method=show : Controller method}
         {--output= : Directory where the generated test will be written}
@@ -22,7 +24,9 @@ class GenerateNullSafetyTestsCommand extends Command
     public function handle(
         NullSafetyTestGenerationService $generator,
         BatchNullSafetyTestGenerationService $batchGenerator,
-        GeneratedTestFileWriter $writer
+        GeneratedTestFileWriter $writer,
+        WriteTestGenerationService $writeGenerator,
+        RouteScanner $routeScanner
     ): int {
         if ((bool) $this->option('all')) {
             if ($this->option('controller') !== null) {
@@ -90,7 +94,14 @@ class GenerateNullSafetyTestsCommand extends Command
         }
 
         try {
-            $generatedFile = $generator->generate($controller, $method);
+            $route = $routeScanner->find($controller, $method);
+            $generatedFile = in_array(
+                strtoupper($route['method'] ?? ''),
+                ['POST', 'PUT', 'PATCH'],
+                true
+            )
+                ? $writeGenerator->generate($controller, $method, $route)
+                : $generator->generate($controller, $method);
         } catch (Throwable $exception) {
             $this->error(sprintf(
                 'The test could not be generated: %s',

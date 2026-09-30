@@ -114,6 +114,56 @@ class RouteScanner
         return $routes;
     }
 
+    public function allWriteControllerRoutes(): array
+    {
+        $routes = [];
+
+        foreach ($this->router->getRoutes() as $route) {
+            $httpMethod = $this->getPrimaryHttpMethod($route);
+
+            if (! in_array($httpMethod, ['POST', 'PUT', 'PATCH'], true)) {
+                continue;
+            }
+
+            $controllerAction = $this->getControllerAction($route);
+
+            if ($controllerAction === null) {
+                continue;
+            }
+
+            $parameterModels = $this->resolveParameterModels(
+                $route,
+                $controllerAction['controller'],
+                $controllerAction['method']
+            );
+            $parameterValues = $this->resolveParameterValues(
+                $route,
+                $controllerAction['controller'],
+                $controllerAction['method'],
+                $parameterModels
+            );
+            $resolvedRoute = [
+                'name' => $route->getName(),
+                'method' => $httpMethod,
+                'parameters' => $this->getParameters(
+                    $route,
+                    $parameterModels
+                ),
+                'controller' => $controllerAction['controller'],
+                'controllerMethod' => $controllerAction['method'],
+                'parameterModels' => $parameterModels,
+            ];
+
+            if ($parameterValues !== []) {
+                $resolvedRoute['parameterValues'] = $parameterValues;
+            }
+
+            $routes[] = $resolvedRoute;
+        }
+
+        return $routes;
+    }
+
     private function getActionName(Route $route): string
     {
         return ltrim($route->getActionName(), '\\');

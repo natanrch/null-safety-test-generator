@@ -52,6 +52,60 @@ class FactoryTestGenerator
         ];
     }
 
+    public function generateExistsRecord(array $dependency): array
+    {
+        $modelClass = $dependency['model'] ?? null;
+        $variable = $dependency['variable'] ?? null;
+
+        if (
+            ! is_string($modelClass)
+            || ! class_exists($modelClass)
+            || ! is_subclass_of($modelClass, Model::class)
+        ) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'The model class %s is invalid; the test could not be generated.',
+                    is_string($modelClass) ? $modelClass : 'unknown'
+                ),
+            ];
+        }
+
+        if (! $this->factoryExists($modelClass)) {
+            return $this->factoryNotFoundResult($modelClass);
+        }
+
+        if (
+            ! is_string($variable)
+            || preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) !== 1
+        ) {
+            return [
+                'generated' => false,
+                'message' => 'The exists-rule model variable is invalid; the test could not be generated.',
+            ];
+        }
+
+        $states = [];
+
+        foreach ($dependency['nullableProperties'] ?? [] as $property) {
+            if (
+                is_string($property)
+                && preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $property) === 1
+            ) {
+                $states[] = var_export($property, true) . ' => null';
+            }
+        }
+
+        $factory = '\\' . $modelClass . '::factory()->create('
+            . ($states === [] ? '' : '[' . implode(', ', $states) . ']')
+            . ');';
+
+        return [
+            'generated' => true,
+            'code' => '$' . $variable . ' = ' . $factory,
+        ];
+    }
+
     public function generate(array $scenario): array
     {
         $modelClass = $scenario['rootClass'] ?? null;

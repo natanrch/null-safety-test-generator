@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Feature;
 use Natan\NullSafetyTestGenerator\Services\BatchNullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Illuminate\Routing\Router;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class GenerateNullSafetyTestsCommandTest extends TestCase
@@ -79,6 +80,28 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
         $this->assertDirectoryDoesNotExist($this->outputDirectory);
     }
 
+    public function test_it_displays_the_missing_exists_factory_message_for_a_write_route(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/categories-without-factory', [
+                PostController::class,
+                'storeWithExistingCategoryWithoutFactory',
+            ])
+            ->name('categories-without-factory.store');
+
+        $this->artisan('null-safety:generate', [
+            '--controller' => PostController::class,
+            '--method' => 'storeWithExistingCategoryWithoutFactory',
+            '--output' => $this->outputDirectory,
+        ])
+            ->expectsOutputToContain(
+                'does not exist; the test could not be generated.'
+            )
+            ->assertFailed();
+
+        $this->assertDirectoryDoesNotExist($this->outputDirectory);
+    }
+
     public function test_it_reports_skipped_scenarios_and_writes_valid_tests(): void
     {
         $generator = $this->createMock(
@@ -142,6 +165,36 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
         $this->assertSame(
             2,
             substr_count(file_get_contents($path), 'public function test_')
+        );
+    }
+
+    public function test_it_writes_get_and_write_route_tests_to_the_batch_file(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/category', [PostController::class, 'storeWithExistingCategory'])
+            ->name('posts.category.store');
+
+        $this->artisan('null-safety:generate', [
+            '--all' => true,
+            '--output' => $this->outputDirectory,
+        ])
+            ->expectsOutputToContain('[2/2] Analyzing posts.category.store...')
+            ->expectsOutputToContain(
+                'Analyzed routes: 2; generated tests: 3.'
+            )
+            ->assertSuccessful();
+
+        $path = $this->outputDirectory
+            . '/ApplicationNullSafetyTest.php';
+        $code = file_get_contents($path);
+
+        $this->assertStringContainsString(
+            'test_posts_category_store_does_not_return_a_server_error_for_post_request',
+            $code
+        );
+        $this->assertStringContainsString(
+            "['category_id' => \$category->id]",
+            $code
         );
     }
 
