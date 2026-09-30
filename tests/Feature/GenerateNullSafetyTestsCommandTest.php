@@ -59,7 +59,7 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             file_get_contents($path)
         );
         $this->assertSame(
-            4,
+            2,
             substr_count(
                 file_get_contents($path),
                 'public function test_'
@@ -124,10 +124,10 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             '--output' => $this->outputDirectory,
         ])
             ->expectsOutputToContain('[1/1] Analyzing posts.show...')
-            ->expectsOutputToContain('Generated 4 tests.')
+            ->expectsOutputToContain('Generated 2 tests.')
             ->expectsOutputToContain('Null-safety test generated:')
             ->expectsOutputToContain(
-                'Analyzed routes: 1; generated tests: 4.'
+                'Analyzed routes: 1; generated tests: 2.'
             )
             ->assertSuccessful();
 
@@ -140,7 +140,7 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             file_get_contents($path)
         );
         $this->assertSame(
-            4,
+            2,
             substr_count(file_get_contents($path), 'public function test_')
         );
     }
@@ -220,7 +220,7 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
 
         $this->artisan('null-safety:generate', $arguments)
             ->expectsOutputToContain(
-                'Added tests: 0; preserved existing tests: 4.'
+                'Added tests: 0; preserved existing tests: 2.'
             )
             ->assertSuccessful();
 
@@ -231,7 +231,7 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             $mergedCode
         );
         $this->assertSame(
-            4,
+            2,
             substr_count($mergedCode, 'public function test_')
         );
     }

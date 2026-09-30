@@ -25,12 +25,12 @@ class BatchNullSafetyTestGenerationServiceTest extends TestCase
             $result['fileName']
         );
         $this->assertSame(1, $result['analyzedRoutes']);
-        $this->assertSame(4, $result['generatedTests']);
+        $this->assertSame(2, $result['generatedTests']);
         $this->assertSame(
-            4,
+            2,
             substr_count($result['code'], 'public function test_')
         );
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             'test_posts_show_does_not_fail_when_post_title_is_null',
             $result['code']
         );

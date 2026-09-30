@@ -447,7 +447,8 @@ class BladeAnalyzer
     private function collectExpressionAccesses(
         Node\Expr $expression,
         array $aliases,
-        array &$results
+        array &$results,
+        string $usage = 'direct_output'
     ): void {
         $access = $this->analyzeExpression($expression, $aliases);
 
@@ -457,30 +458,41 @@ class BladeAnalyzer
             && ($access['nullsafe'] ?? false) !== true
         ) {
             unset($access['nullsafe']);
+
+            if ($this->isNullSensitiveUsage($usage)) {
+                $access['usage'] = $usage;
+            }
+
             $results[] = $access;
+        }
+
+        if ($expression instanceof Node\Expr\FuncCall) {
+            $this->collectFunctionArguments($expression, $aliases, $results);
+
+            return;
         }
 
         if (
             $expression instanceof Node\Expr\MethodCall
             || $expression instanceof Node\Expr\NullsafeMethodCall
-            || $expression instanceof Node\Expr\StaticCall
-            || $expression instanceof Node\Expr\FuncCall
         ) {
-            if (
-                $expression instanceof Node\Expr\FuncCall
-                && $expression->name instanceof Node\Name
-                && strtolower($expression->name->toString()) === 'is_null'
-            ) {
-                return;
-            }
+            $this->collectMethodArguments($expression, $aliases, $results);
 
-            foreach ($expression->args as $argument) {
-                $this->collectExpressionAccesses(
-                    $argument->value,
-                    $aliases,
-                    $results
-                );
-            }
+            return;
+        }
+
+        if ($expression instanceof Node\Expr\StaticCall) {
+            $this->collectStaticMethodArguments(
+                $expression,
+                $aliases,
+                $results
+            );
+
+            return;
+        }
+
+        if ($expression instanceof Node\Expr\ArrayDimFetch) {
+            $this->collectArrayAccess($expression, $aliases, $results);
 
             return;
         }
@@ -489,36 +501,45 @@ class BladeAnalyzer
             $this->collectExpressionAccesses(
                 $expression->cond,
                 $aliases,
-                $results
+                $results,
+                'condition'
             );
 
             if ($expression->if !== null) {
                 $this->collectExpressionAccesses(
                     $expression->if,
                     $aliases,
-                    $results
+                    $results,
+                    $usage
                 );
             }
 
             $this->collectExpressionAccesses(
                 $expression->else,
                 $aliases,
-                $results
+                $results,
+                $usage
             );
 
             return;
         }
 
         if ($expression instanceof Node\Expr\BinaryOp) {
+            $binaryUsage = $expression instanceof Node\Expr\BinaryOp\Coalesce
+                ? 'null_coalescing'
+                : 'binary_operation';
+
             $this->collectExpressionAccesses(
                 $expression->left,
                 $aliases,
-                $results
+                $results,
+                $binaryUsage
             );
             $this->collectExpressionAccesses(
                 $expression->right,
                 $aliases,
-                $results
+                $results,
+                $binaryUsage
             );
 
             return;
@@ -528,9 +549,132 @@ class BladeAnalyzer
             $this->collectExpressionAccesses(
                 $expression->expr,
                 $aliases,
-                $results
+                $results,
+                'condition'
             );
         }
+    }
+
+    private function collectFunctionArguments(
+        Node\Expr\FuncCall $expression,
+        array $aliases,
+        array &$results
+    ): void {
+        if (
+            $expression->name instanceof Node\Name
+            && in_array(
+                strtolower($expression->name->toString()),
+                ['is_null'],
+                true
+            )
+        ) {
+            return;
+        }
+
+        $this->collectArguments(
+            $expression->args,
+            $aliases,
+            $results,
+            'function_argument'
+        );
+    }
+
+    private function collectMethodArguments(
+        Node\Expr\MethodCall|Node\Expr\NullsafeMethodCall $expression,
+        array $aliases,
+        array &$results
+    ): void {
+        $this->collectArguments(
+            $expression->args,
+            $aliases,
+            $results,
+            'method_argument'
+        );
+    }
+
+    private function collectStaticMethodArguments(
+        Node\Expr\StaticCall $expression,
+        array $aliases,
+        array &$results
+    ): void {
+        $this->collectArguments(
+            $expression->args,
+            $aliases,
+            $results,
+            'static_method_argument'
+        );
+    }
+
+    private function collectArguments(
+        array $arguments,
+        array $aliases,
+        array &$results,
+        string $usage
+    ): void {
+        foreach ($arguments as $argument) {
+            $this->collectExpressionAccesses(
+                $argument->value,
+                $aliases,
+                $results,
+                $usage
+            );
+        }
+    }
+
+    private function collectArrayAccess(
+        Node\Expr\ArrayDimFetch $expression,
+        array $aliases,
+        array &$results
+    ): void {
+        $this->collectExpressionAccesses(
+            $expression->var,
+            $aliases,
+            $results,
+            'array_access'
+        );
+
+        if ($expression->dim !== null) {
+            $this->collectExpressionAccesses(
+                $expression->dim,
+                $aliases,
+                $results,
+                'array_access'
+            );
+        }
+    }
+
+    private function isNullSensitiveUsage(string $usage): bool
+    {
+        return $this->isFunctionArgument($usage)
+            || $this->isMethodArgument($usage)
+            || $this->isStaticMethodArgument($usage)
+            || $this->isBinaryOperation($usage)
+            || $this->isArrayAccess($usage);
+    }
+
+    private function isFunctionArgument(string $usage): bool
+    {
+        return $usage === 'function_argument';
+    }
+
+    private function isMethodArgument(string $usage): bool
+    {
+        return $usage === 'method_argument';
+    }
+
+    private function isStaticMethodArgument(string $usage): bool
+    {
+        return $usage === 'static_method_argument';
+    }
+
+    private function isBinaryOperation(string $usage): bool
+    {
+        return $usage === 'binary_operation';
+    }
+
+    private function isArrayAccess(string $usage): bool
+    {
+        return $usage === 'array_access';
     }
 
     private function analyzeExpression(

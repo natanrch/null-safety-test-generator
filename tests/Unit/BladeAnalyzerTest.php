@@ -78,6 +78,72 @@ class BladeAnalyzerTest extends TestCase
         ], $result);
     }
 
+    public function test_it_marks_an_attribute_used_as_a_function_argument(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('function-argument.blade.php')
+        );
+
+        $this->assertSame('function_argument', $result[0]['usage']);
+        $this->assertSame('name', $result[0]['accesses'][0]['name']);
+    }
+
+    public function test_it_marks_an_attribute_used_as_a_method_argument(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('method-argument.blade.php')
+        );
+
+        $attribute = array_values(array_filter(
+            $result,
+            static fn (array $access): bool =>
+                ($access['root'] ?? null) === 'object'
+        ))[0];
+
+        $this->assertSame('method_argument', $attribute['usage']);
+        $this->assertSame('name', $attribute['accesses'][0]['name']);
+    }
+
+    public function test_it_marks_an_attribute_used_as_a_static_method_argument(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('static-method-argument.blade.php')
+        );
+
+        $this->assertSame('static_method_argument', $result[0]['usage']);
+        $this->assertSame('name', $result[0]['accesses'][0]['name']);
+    }
+
+    public function test_it_marks_an_attribute_used_in_a_binary_operation(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('binary-operation.blade.php')
+        );
+
+        $this->assertSame('binary_operation', $result[0]['usage']);
+        $this->assertSame('price', $result[0]['accesses'][0]['name']);
+    }
+
+    public function test_it_marks_an_attribute_used_as_an_array(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('array-access.blade.php')
+        );
+
+        $this->assertSame('array_access', $result[0]['usage']);
+        $this->assertSame('metadata', $result[0]['accesses'][0]['name']);
+    }
+
+    public function test_it_does_not_mark_null_coalescing_as_null_sensitive(): void
+    {
+        $result = (new BladeAnalyzer())->analyze(
+            $this->viewPath('null-coalescing.blade.php')
+        );
+
+        $this->assertArrayNotHasKey('usage', $result[0]);
+        $this->assertSame('name', $result[0]['accesses'][0]['name']);
+    }
+
     public function test_it_resolves_collection_items_created_by_foreach(): void
     {
         $analyzer = new BladeAnalyzer();
@@ -194,6 +260,7 @@ class BladeAnalyzerTest extends TestCase
                 'accesses' => [
                     ['type' => 'property', 'name' => 'id'],
                 ],
+                'usage' => 'function_argument',
             ],
         ], $result);
     }

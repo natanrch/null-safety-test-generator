@@ -101,7 +101,14 @@ class NullScenarioGenerator
                 $resolvedPath[] = $target;
                 $strategy = $this->getStrategy($target);
 
-                if ($strategy === null) {
+                if (
+                    $strategy === null
+                    || ! $this->shouldGenerateScenario(
+                        $target,
+                        $analyzedAccess,
+                        count($resolvedPath) - 1
+                    )
+                ) {
                     continue;
                 }
 
@@ -175,5 +182,81 @@ class NullScenarioGenerator
         }
 
         return 'missing_relationship';
+    }
+
+    private function shouldGenerateScenario(
+        array $target,
+        array $analyzedAccess,
+        int $resolvedIndex
+    ): bool {
+        if (($target['kind'] ?? null) !== 'attribute') {
+            return true;
+        }
+
+        if (! isset($analyzedAccess['accesses'])) {
+            return true;
+        }
+
+        return $this->isAttributeDereferenced(
+            $analyzedAccess['accesses'],
+            $resolvedIndex
+        ) || $this->hasNullSensitiveUsage($analyzedAccess);
+    }
+
+    private function isAttributeDereferenced(
+        array $accesses,
+        int $resolvedIndex
+    ): bool {
+        $propertyIndex = -1;
+
+        foreach ($accesses as $accessIndex => $access) {
+            if (($access['type'] ?? null) !== 'property') {
+                continue;
+            }
+
+            $propertyIndex++;
+
+            if ($propertyIndex === $resolvedIndex) {
+                return array_key_exists($accessIndex + 1, $accesses);
+            }
+        }
+
+        return false;
+    }
+
+    private function hasNullSensitiveUsage(array $analyzedAccess): bool
+    {
+        $usage = $analyzedAccess['usage'] ?? null;
+
+        return $this->isFunctionArgument($usage)
+            || $this->isMethodArgument($usage)
+            || $this->isStaticMethodArgument($usage)
+            || $this->isBinaryOperation($usage)
+            || $this->isArrayAccess($usage);
+    }
+
+    private function isFunctionArgument(mixed $usage): bool
+    {
+        return $usage === 'function_argument';
+    }
+
+    private function isMethodArgument(mixed $usage): bool
+    {
+        return $usage === 'method_argument';
+    }
+
+    private function isStaticMethodArgument(mixed $usage): bool
+    {
+        return $usage === 'static_method_argument';
+    }
+
+    private function isBinaryOperation(mixed $usage): bool
+    {
+        return $usage === 'binary_operation';
+    }
+
+    private function isArrayAccess(mixed $usage): bool
+    {
+        return $usage === 'array_access';
     }
 }

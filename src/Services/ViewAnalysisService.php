@@ -82,6 +82,10 @@ class ViewAnalysisService
                 $combinedAccess['alias'] = $bladeAccess['alias'];
             }
 
+            if (isset($bladeAccess['usage'])) {
+                $combinedAccess['usage'] = $bladeAccess['usage'];
+            }
+
             $combinedAccess['accesses'] = $bladeAccess['accesses'] ?? [];
             $combinedAccess['resolvedAccesses'] =
                 $this->accessChainResolver->resolve(

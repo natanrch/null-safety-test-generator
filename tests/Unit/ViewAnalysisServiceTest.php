@@ -219,7 +219,7 @@ class ViewAnalysisServiceTest extends TestCase
             'empty_root_collection',
             $scenarios[0]['strategy']
         );
-        $this->assertSame('null_attribute', $scenarios[1]['strategy']);
+        $this->assertCount(1, $scenarios);
     }
 
     public function test_it_resolves_a_collection_assigned_inside_a_php_block(): void
@@ -248,14 +248,25 @@ class ViewAnalysisServiceTest extends TestCase
             'empty_collection',
             $scenarios[1]['strategy']
         );
-        $this->assertSame(
-            ['author', 'posts', 'title'],
-            $scenarios[2]['path']
+        $this->assertCount(2, $scenarios);
+    }
+
+    public function test_it_generates_a_scenario_for_an_attribute_used_by_a_function(): void
+    {
+        $analysis = $this->createAnalyzer()->analyze(
+            FakeControllerWithView::class,
+            'show',
+            __DIR__ . '/../Fixtures/views/objects/function-argument.blade.php'
         );
+        $scenarios = (new NullScenarioGenerator())->generate($analysis);
+
         $this->assertSame(
-            'null_attribute',
-            $scenarios[2]['strategy']
+            'function_argument',
+            $analysis['accesses'][0]['usage']
         );
+        $this->assertCount(1, $scenarios);
+        $this->assertSame('null_attribute', $scenarios[0]['strategy']);
+        $this->assertSame(['name'], $scenarios[0]['path']);
     }
 
     private function createAnalyzer(): ViewAnalysisService

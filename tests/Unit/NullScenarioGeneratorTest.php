@@ -339,4 +339,110 @@ class NullScenarioGeneratorTest extends TestCase
         ], $result[0]);
         $this->assertSame('null_attribute', $result[1]['strategy']);
     }
+
+    public function test_it_ignores_an_attribute_used_only_as_direct_output(): void
+    {
+        $result = $this->generateAttributeScenarios([
+            ['type' => 'property', 'name' => 'title'],
+        ]);
+
+        $this->assertSame([], $result);
+    }
+
+    public function test_it_generates_a_scenario_for_a_dereferenced_attribute(): void
+    {
+        $result = $this->generateAttributeScenarios([
+            ['type' => 'property', 'name' => 'published_at'],
+            ['type' => 'method', 'name' => 'format'],
+        ], null, 'published_at');
+
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
+    public function test_it_generates_a_scenario_for_a_function_argument(): void
+    {
+        $result = $this->generateAttributeScenarios(
+            [['type' => 'property', 'name' => 'title']],
+            'function_argument'
+        );
+
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
+    public function test_it_generates_a_scenario_for_a_method_argument(): void
+    {
+        $result = $this->generateAttributeScenarios(
+            [['type' => 'property', 'name' => 'title']],
+            'method_argument'
+        );
+
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
+    public function test_it_generates_a_scenario_for_a_static_method_argument(): void
+    {
+        $result = $this->generateAttributeScenarios(
+            [['type' => 'property', 'name' => 'title']],
+            'static_method_argument'
+        );
+
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
+    public function test_it_generates_a_scenario_for_a_binary_operation(): void
+    {
+        $result = $this->generateAttributeScenarios(
+            [['type' => 'property', 'name' => 'title']],
+            'binary_operation'
+        );
+
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
+    public function test_it_generates_a_scenario_for_an_array_access(): void
+    {
+        $result = $this->generateAttributeScenarios(
+            [['type' => 'property', 'name' => 'title']],
+            'array_access'
+        );
+
+        $this->assertSame('null_attribute', $result[0]['strategy']);
+    }
+
+    public function test_it_ignores_an_attribute_protected_by_null_coalescing(): void
+    {
+        $result = $this->generateAttributeScenarios(
+            [['type' => 'property', 'name' => 'title']],
+            'null_coalescing'
+        );
+
+        $this->assertSame([], $result);
+    }
+
+    private function generateAttributeScenarios(
+        array $accesses,
+        ?string $usage = null,
+        string $property = 'title'
+    ): array {
+        $analyzedAccess = [
+            'root' => 'post',
+            'class' => FakePost::class,
+            'type' => 'object',
+            'accesses' => $accesses,
+            'resolvedAccesses' => [[
+                'model' => FakePost::class,
+                'property' => $property,
+                'kind' => 'attribute',
+            ]],
+        ];
+
+        if ($usage !== null) {
+            $analyzedAccess['usage'] = $usage;
+        }
+
+        return (new NullScenarioGenerator())->generate([
+            'view' => 'posts.show',
+            'accesses' => [$analyzedAccess],
+        ]);
+    }
 }

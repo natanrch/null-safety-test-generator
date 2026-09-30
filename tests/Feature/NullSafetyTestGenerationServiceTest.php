@@ -62,7 +62,7 @@ class NullSafetyTestGenerationServiceTest extends TestCase
             $result['code']
         );
 
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             'test_posts_show_does_not_fail_when_post_title_is_null',
             $result['code']
         );
@@ -77,13 +77,13 @@ class NullSafetyTestGenerationServiceTest extends TestCase
             $result['code']
         );
 
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             'test_posts_show_does_not_fail_when_post_author_profile_name_is_null',
             $result['code']
         );
 
         $this->assertSame(
-            4,
+            2,
             substr_count($result['code'], 'public function test_')
         );
     }

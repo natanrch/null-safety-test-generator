@@ -1,0 +1,1 @@
+{{ $object->price / 100 }}
