@@ -83,6 +83,21 @@ class EloquentAccessChainResolverTest extends TestCase
         ], $result);
     }
 
+    public function test_it_preserves_literal_relationship_constraints(): void
+    {
+        $result = (new EloquentAccessChainResolver(
+            new EloquentRelationshipResolver()
+        ))->resolve(FakeAuthor::class, [[
+            'type' => 'property',
+            'name' => 'filteredProfile',
+        ]]);
+
+        $this->assertSame([
+            'active' => true,
+            'cancelled' => false,
+        ], $result[0]['constraints']);
+    }
+
     public function test_it_resolves_casts_accessors_and_value_objects(): void
     {
         $result = (new EloquentAccessChainResolver(

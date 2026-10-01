@@ -11,7 +11,11 @@ class WriteFeatureTestGenerator
     ) {
     }
 
-    public function generate(array $analysis, array $route): array
+    public function generate(
+        array $analysis,
+        array $route,
+        ?array $scenario = null
+    ): array
     {
         $error = $this->validate($analysis, $route);
 
@@ -19,10 +23,25 @@ class WriteFeatureTestGenerator
             return ['generated' => false, 'message' => $error];
         }
 
-        $setup = $this->generateRouteSetup($route);
+        $setup = $this->generateRouteSetup(
+            $route,
+            is_string($scenario['root'] ?? null)
+                ? $scenario['root']
+                : null
+        );
 
         if (($setup['generated'] ?? false) !== true) {
             return $setup;
+        }
+
+        if ($scenario !== null) {
+            $scenarioSetup = $this->factoryTestGenerator->generate($scenario);
+
+            if (($scenarioSetup['generated'] ?? false) !== true) {
+                return $scenarioSetup;
+            }
+
+            $setup['code'][] = $scenarioSetup['code'];
         }
 
         $dependencySetup = $this->generateDependencySetup(
@@ -39,9 +58,11 @@ class WriteFeatureTestGenerator
         ];
 
         $httpMethod = strtolower($route['method']);
-        $methodName = 'test_' . $this->normalizeName($route['name'])
-            . '_does_not_return_a_server_error_for_'
-            . $httpMethod . '_request';
+        $methodName = $scenario === null
+            ? 'test_' . $this->normalizeName($route['name'])
+                . '_does_not_return_a_server_error_for_'
+                . $httpMethod . '_request'
+            : $this->scenarioMethodName($scenario, $route);
         $setupCode = $this->indent(
             implode("\n\n", $setup['code']),
             4
@@ -65,10 +86,22 @@ class WriteFeatureTestGenerator
                 '    );',
                 '',
                 '    $this->assertLessThan(500, $response->status());',
-                '    $this->assertNotSame(404, $response->status());',
                 '}',
             ]),
         ];
+    }
+
+    public function generateAll(array $analysis, array $route): array
+    {
+        $results = [$this->generate($analysis, $route)];
+
+        foreach ($analysis['scenarios'] ?? [] as $scenario) {
+            if (is_array($scenario)) {
+                $results[] = $this->generate($analysis, $route, $scenario);
+            }
+        }
+
+        return $results;
     }
 
     private function validate(array $analysis, array $route): ?string
@@ -88,7 +121,10 @@ class WriteFeatureTestGenerator
         return null;
     }
 
-    private function generateRouteSetup(array $route): array
+    private function generateRouteSetup(
+        array $route,
+        ?string $scenarioRoot = null
+    ): array
     {
         $code = [];
 
@@ -101,6 +137,11 @@ class WriteFeatureTestGenerator
                     'generated' => false,
                     'message' => 'A write route parameter model is invalid; the test could not be generated.',
                 ];
+            }
+
+
+            if ($variable === $scenarioRoot) {
+                continue;
             }
 
             $factory = $this->factoryTestGenerator->generateRouteParameter(
@@ -175,6 +216,24 @@ class WriteFeatureTestGenerator
         $normalized = preg_replace('/[^a-zA-Z0-9]+/', '_', $name);
 
         return strtolower(trim($normalized ?? $name, '_'));
+    }
+
+    private function scenarioMethodName(array $scenario, array $route): string
+    {
+        $segments = array_map(
+            fn (mixed $segment): string => $this->normalizeName(
+                is_string($segment) ? $segment : 'unknown'
+            ),
+            $scenario['path'] ?? []
+        );
+
+        return 'test_' . $this->normalizeName($route['name'])
+            . '_does_not_fail_when_'
+            . $this->normalizeName($scenario['root'] ?? 'model')
+            . ($segments === [] ? '' : '_' . implode('_', $segments))
+            . (($scenario['strategy'] ?? null) === 'empty_collection'
+                ? '_is_empty'
+                : '_is_null');
     }
 
     private function exportPayload(

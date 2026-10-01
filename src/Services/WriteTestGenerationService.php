@@ -23,23 +23,52 @@ class WriteTestGenerationService
         string $controllerMethod,
         ?array $route = null
     ): array {
-        $methodResult = $this->generateMethod(
+        $methodsResult = $this->generateMethods(
             $controllerClass,
             $controllerMethod,
             $route
         );
 
-        if (($methodResult['generated'] ?? false) !== true) {
-            return $methodResult;
+        if (($methodsResult['generated'] ?? false) !== true) {
+            return $methodsResult;
         }
 
-        return $this->fileGenerator->generate(
-            $this->className($methodResult['route']['name']),
-            [$methodResult['code']]
+        $file = $this->fileGenerator->generate(
+            $this->className($methodsResult['route']['name']),
+            $methodsResult['testMethods']
         );
+
+        if (($methodsResult['warnings'] ?? []) !== []) {
+            $file['warnings'] = $methodsResult['warnings'];
+        }
+
+        return $file;
     }
 
     public function generateMethod(
+        string $controllerClass,
+        string $controllerMethod,
+        ?array $route = null
+    ): array {
+        $result = $this->generateMethods(
+            $controllerClass,
+            $controllerMethod,
+            $route
+        );
+
+        if (($result['generated'] ?? false) !== true) {
+            return $result;
+        }
+
+        return [
+            'generated' => true,
+            'code' => $result['testMethods'][0],
+            'route' => $result['route'],
+            'warnings' => $result['warnings'],
+        ];
+    }
+
+    public function generateMethods(
         string $controllerClass,
         string $controllerMethod,
         ?array $route = null
@@ -68,16 +97,33 @@ class WriteTestGenerationService
             ];
         }
 
-        $method = $this->testGenerator->generate($analysis, $route);
+        $testMethods = [];
+        $warnings = [];
 
-        if (($method['generated'] ?? false) !== true) {
-            return $method;
+        foreach ($this->testGenerator->generateAll($analysis, $route) as $method) {
+            if (($method['generated'] ?? false) !== true) {
+                $warnings[] = $method['message']
+                    ?? 'A write test scenario could not be generated.';
+                continue;
+            }
+
+            $testMethods[] = $method['code'];
+        }
+
+        if ($testMethods === []) {
+            return [
+                'generated' => false,
+                'message' => $warnings[0]
+                    ?? 'No valid write test methods were generated.',
+                'warnings' => $warnings,
+            ];
         }
 
         return [
             'generated' => true,
-            'code' => $method['code'],
+            'testMethods' => array_values(array_unique($testMethods)),
             'route' => $route,
+            'warnings' => $warnings,
         ];
     }
 

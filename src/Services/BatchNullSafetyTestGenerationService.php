@@ -186,7 +186,7 @@ class BatchNullSafetyTestGenerationService
         string $controllerMethod,
         array $route
     ): array {
-        $result = $this->writeTestGenerationService->generateMethod(
+        $result = $this->writeTestGenerationService->generateMethods(
             $controller,
             $controllerMethod,
             $route
@@ -196,12 +196,7 @@ class BatchNullSafetyTestGenerationService
             return $result;
         }
 
-        return [
-            'generated' => true,
-            'testMethods' => [$result['code']],
-            'route' => $route,
-            'warnings' => [],
-        ];
+        return $result;
     }
 
     private function reportProgress(

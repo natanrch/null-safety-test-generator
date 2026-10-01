@@ -119,7 +119,66 @@ class EloquentRelationshipResolver
             $result['relatedClass'] = $relatedClass;
         }
 
+        $constraints = $this->getEqualityConstraints($return->expr);
+
+        if ($constraints !== []) {
+            $result['constraints'] = $constraints;
+        }
+
         return $result;
+    }
+
+    private function getEqualityConstraints(?Node\Expr $expression): array
+    {
+        $constraints = [];
+        $current = $expression;
+
+        while ($current instanceof Node\Expr\MethodCall) {
+            if (
+                $current->name instanceof Node\Identifier
+                && $current->name->toString() === 'where'
+                && ($current->args[0]->value ?? null)
+                    instanceof Node\Scalar\String_
+                && isset($current->args[1])
+            ) {
+                $value = $this->literalValue($current->args[1]->value);
+
+                if ($value['resolved']) {
+                    $constraints[$current->args[0]->value->value]
+                        = $value['value'];
+                }
+            }
+
+            $current = $current->var;
+        }
+
+        return array_reverse($constraints, true);
+    }
+
+    private function literalValue(Node\Expr $expression): array
+    {
+        if ($expression instanceof Node\Scalar\String_) {
+            return ['resolved' => true, 'value' => $expression->value];
+        }
+
+        if ($expression instanceof Node\Scalar\Int_) {
+            return ['resolved' => true, 'value' => $expression->value];
+        }
+
+        if ($expression instanceof Node\Scalar\Float_) {
+            return ['resolved' => true, 'value' => $expression->value];
+        }
+
+        if ($expression instanceof Node\Expr\ConstFetch) {
+            return match (strtolower($expression->name->toString())) {
+                'true' => ['resolved' => true, 'value' => true],
+                'false' => ['resolved' => true, 'value' => false],
+                'null' => ['resolved' => true, 'value' => null],
+                default => ['resolved' => false, 'value' => null],
+            };
+        }
+
+        return ['resolved' => false, 'value' => null];
     }
 
     private function findRelationshipCall(

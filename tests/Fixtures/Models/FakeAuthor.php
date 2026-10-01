@@ -27,6 +27,13 @@ class FakeAuthor
             ->orderBy('title');
     }
 
+    public function filteredProfile()
+    {
+        return $this->hasOne(FakeProfile::class)
+            ->where('active', true)
+            ->where('cancelled', false);
+    }
+
     public function relatedPosts()
     {
         return $this->belongsToMany(FakePost::class);

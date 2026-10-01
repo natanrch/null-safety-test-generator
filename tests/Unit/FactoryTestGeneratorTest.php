@@ -282,6 +282,25 @@ class FactoryTestGeneratorTest extends TestCase
         );
     }
 
+    public function test_it_applies_relationship_constraints_to_nested_preconditions(): void
+    {
+        $scenario = $this->nestedAttributeScenario(FakeProfile::class);
+        $scenario['resolvedPath'][0]['constraints'] = [
+            'active' => true,
+            'cancelled' => false,
+        ];
+
+        $result = (new FactoryTestGenerator())->generate($scenario);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            "::factory()->has(\\" . FakeProfile::class
+                . "::factory()->state(['name' => null]), 'profile')"
+                . "->state(['active' => true, 'cancelled' => false])",
+            $result['code']
+        );
+    }
+
     private function attributeScenario(string $modelClass): array
     {
         return [

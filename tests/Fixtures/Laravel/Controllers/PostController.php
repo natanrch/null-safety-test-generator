@@ -56,6 +56,8 @@ class PostController
             'tags' => ['array'],
         ]);
 
+        $category = Category::findOrFail($request->category_id);
+
         return response()->noContent();
     }
 
@@ -94,6 +96,14 @@ class PostController
         ]);
 
         $category = CategoryWithoutFactory::findOrFail($request->category_id);
+
+        return response()->noContent();
+    }
+
+    public function processAuthorProfile(Post $post)
+    {
+        $author = $post->author;
+        strtoupper($author->profile->name);
 
         return response()->noContent();
     }

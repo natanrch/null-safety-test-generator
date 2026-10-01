@@ -363,6 +363,10 @@ class FactoryTestGenerator
             $relationship['property'],
             true
         );
+        $relatedFactory = $this->applyRelationshipConstraints(
+            $relatedFactory,
+            $relationship['constraints'] ?? []
+        );
 
         if ($relationship['relation'] === 'belongsTo') {
             return $parentFactory
@@ -402,6 +406,30 @@ class FactoryTestGenerator
         }
 
         return null;
+    }
+
+    private function applyRelationshipConstraints(
+        string $factory,
+        mixed $constraints
+    ): string {
+        if (! is_array($constraints) || $constraints === []) {
+            return $factory;
+        }
+
+        $states = [];
+
+        foreach ($constraints as $column => $value) {
+            if (! is_string($column)) {
+                continue;
+            }
+
+            $states[] = var_export($column, true)
+                . ' => ' . var_export($value, true);
+        }
+
+        return $states === []
+            ? $factory
+            : $factory . '->state([' . implode(', ', $states) . '])';
     }
 
     private function unsupportedRelationshipPathResult(): array

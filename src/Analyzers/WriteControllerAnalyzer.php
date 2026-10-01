@@ -3,6 +3,9 @@
 namespace Natan\NullSafetyTestGenerator\Analyzers;
 
 use Illuminate\Http\Request;
+use Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator;
+use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
+use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
 use ReflectionMethod;
 use ReflectionNamedType;
 use Throwable;
@@ -10,9 +13,17 @@ use Throwable;
 class WriteControllerAnalyzer
 {
     public function __construct(
-        private ?RequestValidationAnalyzer $validationAnalyzer = null
+        private ?RequestValidationAnalyzer $validationAnalyzer = null,
+        private ?WriteControllerAccessAnalyzer $accessAnalyzer = null,
+        private ?NullScenarioGenerator $scenarioGenerator = null
     ) {
         $this->validationAnalyzer ??= new RequestValidationAnalyzer();
+        $this->accessAnalyzer ??= new WriteControllerAccessAnalyzer(
+            new EloquentAccessChainResolver(
+                new EloquentRelationshipResolver()
+            )
+        );
+        $this->scenarioGenerator ??= new NullScenarioGenerator();
     }
 
     public function analyze(
@@ -60,6 +71,10 @@ class WriteControllerAnalyzer
             $controllerClass,
             $controllerMethod
         );
+        $accesses = $this->accessAnalyzer->analyze(
+            $controllerClass,
+            $controllerMethod
+        );
 
         return [
             'controller' => ltrim($controllerClass, '\\'),
@@ -68,6 +83,10 @@ class WriteControllerAnalyzer
             'validation' => $validation['fields'],
             'payload' => $validation['payload'],
             'dependencies' => $validation['dependencies'] ?? [],
+            'accesses' => $accesses,
+            'scenarios' => $this->scenarioGenerator->generate([
+                'accesses' => $accesses,
+            ]),
         ];
     }
 }

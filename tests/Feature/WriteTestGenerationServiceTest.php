@@ -100,4 +100,44 @@ class WriteTestGenerationServiceTest extends TestCase
             $result['message']
         );
     }
+
+    public function test_it_generates_each_null_scenario_in_a_write_relationship_chain(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/{post}/process-profile', [
+                PostController::class,
+                'processAuthorProfile',
+            ])
+            ->name('posts.process-profile');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'processAuthorProfile');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(4, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'test_posts_process_profile_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_posts_process_profile_does_not_fail_when_post_author_profile_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_posts_process_profile_does_not_fail_when_post_author_profile_name_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "::factory()->state(['author_id' => null])->create();",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "::factory()->state(['name' => null])",
+            $result['code']
+        );
+    }
 }
