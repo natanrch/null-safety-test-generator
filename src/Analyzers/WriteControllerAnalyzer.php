@@ -14,14 +14,15 @@ class WriteControllerAnalyzer
 {
     public function __construct(
         private ?RequestValidationAnalyzer $validationAnalyzer = null,
-        private ?WriteControllerAccessAnalyzer $accessAnalyzer = null,
+        private ?ModelPropagationAnalyzer $accessAnalyzer = null,
         private ?NullScenarioGenerator $scenarioGenerator = null
     ) {
         $this->validationAnalyzer ??= new RequestValidationAnalyzer();
-        $this->accessAnalyzer ??= new WriteControllerAccessAnalyzer(
+        $this->accessAnalyzer ??= new ModelPropagationAnalyzer(
             new EloquentAccessChainResolver(
                 new EloquentRelationshipResolver()
-            )
+            ),
+            includeEntryMethodAccesses: true
         );
         $this->scenarioGenerator ??= new NullScenarioGenerator();
     }

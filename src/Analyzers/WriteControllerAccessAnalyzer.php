@@ -14,12 +14,14 @@ use ReflectionMethod;
 use ReflectionNamedType;
 use Throwable;
 
+/** @deprecated Use ModelPropagationAnalyzer. */
 class WriteControllerAccessAnalyzer
 {
     private const MAX_CALL_DEPTH = 8;
 
     public function __construct(
-        private EloquentAccessChainResolver $accessChainResolver
+        private EloquentAccessChainResolver $accessChainResolver,
+        private bool $includeEntryMethodAccesses = true
     ) {
     }
 
@@ -105,25 +107,27 @@ class WriteControllerAccessAnalyzer
             }
         }
 
-        foreach ($finder->findInstanceOf(
-            $classMethod->stmts ?? [],
-            Node\Expr\PropertyFetch::class
-        ) as $propertyFetch) {
-            $access = $this->propertyAccess($propertyFetch, $aliases);
+        if ($depth > 0 || $this->includeEntryMethodAccesses) {
+            foreach ($finder->findInstanceOf(
+                $classMethod->stmts ?? [],
+                Node\Expr\PropertyFetch::class
+            ) as $propertyFetch) {
+                $access = $this->propertyAccess($propertyFetch, $aliases);
 
-            if ($access === null || $access['accesses'] === []) {
-                continue;
+                if ($access === null || $access['accesses'] === []) {
+                    continue;
+                }
+
+                $access['resolvedAccesses'] = $this->accessChainResolver->resolve(
+                    $access['class'],
+                    $access['accesses']
+                );
+                $access['usage'] = 'function_argument';
+                $results[serialize([
+                    $access['root'],
+                    $access['accesses'],
+                ])] = $access;
             }
-
-            $access['resolvedAccesses'] = $this->accessChainResolver->resolve(
-                $access['class'],
-                $access['accesses']
-            );
-            $access['usage'] = 'function_argument';
-            $results[serialize([
-                $access['root'],
-                $access['accesses'],
-            ])] = $access;
         }
 
         $objectVariables = $this->objectParameters($method);

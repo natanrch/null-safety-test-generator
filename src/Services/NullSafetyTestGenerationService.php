@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Services;
 use Illuminate\Support\Str;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\JsonResponseAnalyzer;
+use Natan\NullSafetyTestGenerator\Analyzers\ModelPropagationAnalyzer;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestGenerator;
 use Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator;
@@ -20,10 +21,16 @@ class NullSafetyTestGenerationService
         private RouteScanner $routeScanner,
         private FeatureTestGenerator $featureTestGenerator,
         private FeatureTestFileGenerator $featureTestFileGenerator,
-        private ?JsonResponseAnalyzer $jsonResponseAnalyzer = null
+        private ?JsonResponseAnalyzer $jsonResponseAnalyzer = null,
+        private ?ModelPropagationAnalyzer $modelPropagationAnalyzer = null
     ) {
         $this->jsonResponseAnalyzer ??= new JsonResponseAnalyzer(
             new ControllerMethodAnalyzer(),
+            new EloquentAccessChainResolver(
+                new EloquentRelationshipResolver()
+            )
+        );
+        $this->modelPropagationAnalyzer ??= new ModelPropagationAnalyzer(
             new EloquentAccessChainResolver(
                 new EloquentRelationshipResolver()
             )
@@ -68,6 +75,26 @@ class NullSafetyTestGenerationService
             $controllerClass,
             $controllerMethod
         );
+        $propagatedAccesses = $this->modelPropagationAnalyzer->analyze(
+            $controllerClass,
+            $controllerMethod
+        );
+
+        if ($propagatedAccesses !== []) {
+            if ($viewAnalysis !== []) {
+                $viewAnalysis['accesses'] = $this->mergeAccesses(
+                    $viewAnalysis['accesses'] ?? [],
+                    $propagatedAccesses
+                );
+            }
+
+            if ($jsonAnalysis !== []) {
+                $jsonAnalysis['accesses'] = $this->mergeAccesses(
+                    $jsonAnalysis['accesses'] ?? [],
+                    $propagatedAccesses
+                );
+            }
+        }
 
         if ($viewAnalysis === [] && $jsonAnalysis === []) {
             return $this->failure(
@@ -172,6 +199,30 @@ class NullSafetyTestGenerationService
 
         return Str::studly($normalizedRouteName ?? $routeName)
             . 'NullSafetyTest';
+    }
+
+    private function mergeAccesses(array ...$groups): array
+    {
+        $merged = [];
+
+        foreach ($groups as $accesses) {
+            foreach ($accesses as $access) {
+                if (! is_array($access)) {
+                    continue;
+                }
+
+                $key = serialize([
+                    $access['root'] ?? null,
+                    $access['class'] ?? null,
+                    $access['type'] ?? null,
+                    $access['accesses'] ?? [],
+                    $access['usage'] ?? null,
+                ]);
+                $merged[$key] = $access;
+            }
+        }
+
+        return array_values($merged);
     }
 
     private function failure(string $message, ?string $reason = null): array

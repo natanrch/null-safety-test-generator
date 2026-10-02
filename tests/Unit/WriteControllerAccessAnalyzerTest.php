@@ -2,7 +2,7 @@
 
 namespace Natan\NullSafetyTestGenerator\Tests\Unit;
 
-use Natan\NullSafetyTestGenerator\Analyzers\WriteControllerAccessAnalyzer;
+use Natan\NullSafetyTestGenerator\Analyzers\ModelPropagationAnalyzer;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
@@ -19,10 +19,11 @@ class WriteControllerAccessAnalyzerTest extends TestCase
 {
     public function test_it_resolves_a_relationship_chain_through_an_assigned_variable(): void
     {
-        $analyzer = new WriteControllerAccessAnalyzer(
+        $analyzer = new ModelPropagationAnalyzer(
             new EloquentAccessChainResolver(
                 new EloquentRelationshipResolver()
-            )
+            ),
+            includeEntryMethodAccesses: true
         );
 
         $result = $analyzer->analyze(
@@ -84,12 +85,13 @@ class WriteControllerAccessAnalyzerTest extends TestCase
         );
     }
 
-    private function analyzer(): WriteControllerAccessAnalyzer
+    private function analyzer(): ModelPropagationAnalyzer
     {
-        return new WriteControllerAccessAnalyzer(
+        return new ModelPropagationAnalyzer(
             new EloquentAccessChainResolver(
                 new EloquentRelationshipResolver()
-            )
+            ),
+            includeEntryMethodAccesses: true
         );
     }
 }

@@ -18,6 +18,7 @@ use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\ViewAnalysisService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\JsonPostController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\GetServiceController;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class NullSafetyTestGenerationServiceTest extends TestCase
@@ -149,5 +150,66 @@ class NullSafetyTestGenerationServiceTest extends TestCase
         );
         $this->assertStringContainsString('$this->get(', $result['code']);
         $this->assertStringContainsString('$this->getJson(', $result['code']);
+    }
+
+    public function test_it_generates_get_tests_for_accesses_found_inside_a_helper(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/posts/{post}/helper-view', [
+                GetServiceController::class,
+                'viewResponse',
+            ])
+            ->name('posts.helper-view');
+
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generate(GetServiceController::class, 'viewResponse');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(3, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'when_post_author_profile_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'when_post_author_profile_name_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString('$this->get(', $result['code']);
+    }
+
+    public function test_it_generates_get_json_tests_for_accesses_found_inside_a_helper(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/api/posts/{post}/helper-json', [
+                GetServiceController::class,
+                'jsonResponse',
+            ])
+            ->name('api.posts.helper-json');
+
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generate(GetServiceController::class, 'jsonResponse');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(3, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'test_api_posts_helper_json_as_json_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$response = $this->getJson(',
+            $result['code']
+        );
     }
 }
