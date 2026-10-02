@@ -165,7 +165,7 @@ class WriteFeatureTestGenerator
                 . var_export($parameter['value'] ?? 'test', true) . ';';
         }
 
-        if ($code === []) {
+        if ($code === [] && $scenarioRoot === null) {
             $code[] = '// This route does not require route parameters.';
         }
 

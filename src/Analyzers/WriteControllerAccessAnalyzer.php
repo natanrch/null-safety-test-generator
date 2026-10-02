@@ -8,6 +8,7 @@ use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
+use PhpParser\NodeVisitor\ParentConnectingVisitor;
 use PhpParser\ParserFactory;
 use ReflectionClass;
 use ReflectionMethod;
@@ -112,6 +113,19 @@ class WriteControllerAccessAnalyzer
                 $classMethod->stmts ?? [],
                 Node\Expr\PropertyFetch::class
             ) as $propertyFetch) {
+                $parent = $propertyFetch->getAttribute('parent');
+
+                if (
+                    $parent instanceof Node\Expr\PropertyFetch
+                    || $parent instanceof Node\Expr\NullsafePropertyFetch
+                ) {
+                    continue;
+                }
+
+                if ($this->isProtectedAccess($propertyFetch, $aliases)) {
+                    continue;
+                }
+
                 $access = $this->propertyAccess($propertyFetch, $aliases);
 
                 if ($access === null || $access['accesses'] === []) {
@@ -122,7 +136,11 @@ class WriteControllerAccessAnalyzer
                     $access['class'],
                     $access['accesses']
                 );
-                $access['usage'] = 'function_argument';
+                $usage = $this->propertyUsage($propertyFetch);
+
+                if ($usage !== null) {
+                    $access['usage'] = $usage;
+                }
                 $results[serialize([
                     $access['root'],
                     $access['accesses'],
@@ -389,6 +407,289 @@ class WriteControllerAccessAnalyzer
             );
     }
 
+    private function propertyUsage(
+        Node\Expr\PropertyFetch $property
+    ): ?string {
+        $parent = $property->getAttribute('parent');
+
+        if ($parent instanceof Node\Arg) {
+            $parent = $parent->getAttribute('parent');
+        }
+
+        if ($parent instanceof Node\Expr\FuncCall) {
+            return 'function_argument';
+        }
+
+        if ($parent instanceof Node\Expr\StaticCall) {
+            return 'static_method_argument';
+        }
+
+        if ($parent instanceof Node\Expr\MethodCall) {
+            return 'method_argument';
+        }
+
+        if (
+            $parent instanceof Node\Expr\BinaryOp
+            && ! $parent instanceof Node\Expr\BinaryOp\Coalesce
+        ) {
+            return 'binary_operation';
+        }
+
+        if ($parent instanceof Node\Expr\ArrayDimFetch) {
+            return 'array_access';
+        }
+
+        return null;
+    }
+
+    private function isProtectedAccess(
+        Node\Expr\PropertyFetch $property,
+        array $aliases
+    ): bool {
+        $current = $property;
+
+        while (($parent = $current->getAttribute('parent')) instanceof Node) {
+            if (
+                $parent instanceof Node\Expr\BinaryOp\Coalesce
+                || $parent instanceof Node\Expr\Isset_
+                || $parent instanceof Node\Expr\Empty_
+                || $this->isOptionalCall($parent)
+            ) {
+                return true;
+            }
+
+            if ($parent instanceof Node\Stmt\If_) {
+                return $this->isProtectedByIf(
+                    $property,
+                    $current,
+                    $parent,
+                    $aliases
+                );
+            }
+
+            if ($parent instanceof Node\Expr\Ternary) {
+                return $this->isProtectedByTernary(
+                    $property,
+                    $current,
+                    $parent,
+                    $aliases
+                );
+            }
+
+            $current = $parent;
+        }
+
+        return false;
+    }
+
+    private function isOptionalCall(Node $node): bool
+    {
+        return $node instanceof Node\Expr\FuncCall
+            && $node->name instanceof Node\Name
+            && $node->name->toString() === 'optional';
+    }
+
+    private function isProtectedByIf(
+        Node\Expr\PropertyFetch $property,
+        Node $branch,
+        Node\Stmt\If_ $if,
+        array $aliases
+    ): bool {
+        $access = $this->propertyAccess($property, $aliases);
+
+        if ($access === null) {
+            return false;
+        }
+
+        if ($branch === $if->cond) {
+            return $this->conditionGuardsAccess(
+                $if->cond,
+                $access,
+                $aliases,
+                true
+            ) || $this->conditionGuardsAccess(
+                $if->cond,
+                $access,
+                $aliases,
+                false
+            );
+        }
+
+        if (in_array($branch, $if->stmts, true)) {
+            return $this->conditionGuardsAccess(
+                $if->cond,
+                $access,
+                $aliases,
+                true
+            );
+        }
+
+        if ($branch === $if->else) {
+            return $this->conditionGuardsAccess(
+                $if->cond,
+                $access,
+                $aliases,
+                false
+            );
+        }
+
+        return false;
+    }
+
+    private function isProtectedByTernary(
+        Node\Expr\PropertyFetch $property,
+        Node $branch,
+        Node\Expr\Ternary $ternary,
+        array $aliases
+    ): bool {
+        $access = $this->propertyAccess($property, $aliases);
+
+        if ($access === null) {
+            return false;
+        }
+
+        if ($branch === $ternary->cond) {
+            return $this->conditionGuardsAccess(
+                $ternary->cond,
+                $access,
+                $aliases,
+                true
+            ) || $this->conditionGuardsAccess(
+                $ternary->cond,
+                $access,
+                $aliases,
+                false
+            );
+        }
+
+        if ($branch === $ternary->if) {
+            return $this->conditionGuardsAccess(
+                $ternary->cond,
+                $access,
+                $aliases,
+                true
+            );
+        }
+
+        if ($branch === $ternary->else) {
+            return $this->conditionGuardsAccess(
+                $ternary->cond,
+                $access,
+                $aliases,
+                false
+            );
+        }
+
+        return false;
+    }
+
+    private function conditionGuardsAccess(
+        Node\Expr $condition,
+        array $access,
+        array $aliases,
+        bool $whenTrue
+    ): bool {
+        if ($condition instanceof Node\Expr\BooleanNot) {
+            return $this->conditionGuardsAccess(
+                $condition->expr,
+                $access,
+                $aliases,
+                ! $whenTrue
+            );
+        }
+
+        if (
+            $condition instanceof Node\Expr\BinaryOp\BooleanAnd
+            && $whenTrue
+        ) {
+            return $this->conditionGuardsAccess(
+                $condition->left,
+                $access,
+                $aliases,
+                true
+            ) || $this->conditionGuardsAccess(
+                $condition->right,
+                $access,
+                $aliases,
+                true
+            );
+        }
+
+        if ($condition instanceof Node\Expr\Isset_ && $whenTrue) {
+            foreach ($condition->vars as $variable) {
+                if ($variable instanceof Node\Expr\PropertyFetch) {
+                    $guard = $this->propertyAccess($variable, $aliases);
+
+                    if ($guard !== null && $this->isAccessPrefix($guard, $access)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        if ($condition instanceof Node\Expr\PropertyFetch) {
+            $guard = $this->propertyAccess($condition, $aliases);
+
+            return $whenTrue
+                && $guard !== null
+                && $this->isAccessPrefix($guard, $access);
+        }
+
+        if (
+            $condition instanceof Node\Expr\BinaryOp\NotIdentical
+            || $condition instanceof Node\Expr\BinaryOp\NotEqual
+            || $condition instanceof Node\Expr\BinaryOp\Identical
+            || $condition instanceof Node\Expr\BinaryOp\Equal
+        ) {
+            $leftIsNull = $this->isNull($condition->left);
+            $rightIsNull = $this->isNull($condition->right);
+
+            if ($leftIsNull === $rightIsNull) {
+                return false;
+            }
+
+            $candidate = $leftIsNull
+                ? $condition->right
+                : $condition->left;
+            $guard = $candidate instanceof Node\Expr\PropertyFetch
+                ? $this->propertyAccess($candidate, $aliases)
+                : null;
+            $nonNullWhenTrue = $condition instanceof Node\Expr\BinaryOp\NotIdentical
+                || $condition instanceof Node\Expr\BinaryOp\NotEqual;
+
+            return $guard !== null
+                && $whenTrue === $nonNullWhenTrue
+                && $this->isAccessPrefix($guard, $access);
+        }
+
+        return false;
+    }
+
+    private function isNull(Node\Expr $expression): bool
+    {
+        return $expression instanceof Node\Expr\ConstFetch
+            && strtolower($expression->name->toString()) === 'null';
+    }
+
+    private function isAccessPrefix(array $guard, array $access): bool
+    {
+        if (($guard['root'] ?? null) !== ($access['root'] ?? null)) {
+            return false;
+        }
+
+        $guardNames = array_column($guard['accesses'] ?? [], 'name');
+        $accessNames = array_column($access['accesses'] ?? [], 'name');
+
+        return $guardNames !== []
+            && $guardNames === array_slice(
+                $accessNames,
+                0,
+                count($guardNames)
+            );
+    }
+
     private function parseMethod(
         ReflectionMethod $method
     ): ?Node\Stmt\ClassMethod {
@@ -409,6 +710,7 @@ class WriteControllerAccessAnalyzer
 
         $traverser = new NodeTraverser();
         $traverser->addVisitor(new NameResolver());
+        $traverser->addVisitor(new ParentConnectingVisitor());
         $ast = $traverser->traverse($ast);
 
         $node = (new NodeFinder())->findFirst(

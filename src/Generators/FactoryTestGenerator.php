@@ -451,6 +451,26 @@ class FactoryTestGenerator
             return null;
         }
 
+        if (
+            $strategy === 'null_attribute'
+            && class_exists($modelClass)
+            && is_subclass_of($modelClass, Model::class)
+        ) {
+            /** @var Model $model */
+            $model = new $modelClass();
+
+            if ($model->getKeyName() === $property) {
+                return [
+                    'generated' => false,
+                    'message' => sprintf(
+                        'Property %s.%s is the model primary key; the null scenario was skipped.',
+                        $model->getTable(),
+                        $property
+                    ),
+                ];
+            }
+        }
+
         $columnName = $strategy === 'missing_relationship'
             ? Str::snake($property) . '_id'
             : $property;
@@ -459,6 +479,21 @@ class FactoryTestGenerator
             $modelClass,
             $columnName
         );
+
+        if (
+            ($inspection['inspected'] ?? false) !== true
+            && class_exists($modelClass)
+            && is_subclass_of($modelClass, Model::class)
+        ) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'Could not inspect whether %s.%s accepts null; the scenario was skipped.',
+                    (new $modelClass())->getTable(),
+                    $columnName
+                ),
+            ];
+        }
 
         if (
             ($inspection['inspected'] ?? false) === true

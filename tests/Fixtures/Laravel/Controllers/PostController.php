@@ -107,4 +107,80 @@ class PostController
 
         return response()->noContent();
     }
+
+    public function processId(Post $post)
+    {
+        $id = $post->id;
+
+        return response()->json(['id' => $id]);
+    }
+
+    public function processAuthorId(Post $post)
+    {
+        $id = $post->author->id;
+
+        return response()->json(['id' => $id]);
+    }
+
+    public function processSensitiveTitle(Post $post)
+    {
+        $title = strtoupper($post->title);
+
+        return response()->json(['title' => $title]);
+    }
+
+    public function processOptionalAuthor(Post $post)
+    {
+        return optional($post->author)->name;
+    }
+
+    public function processCoalescedProfile(Post $post)
+    {
+        return $post->author->profile->name ?? 'unknown';
+    }
+
+    public function processGuardedAuthor(Post $post)
+    {
+        if ($post->author) {
+            return $post->author->name;
+        }
+
+        return null;
+    }
+
+    public function processComparedGuard(Post $post)
+    {
+        if ($post->author !== null) {
+            return $post->author->name;
+        }
+
+        return null;
+    }
+
+    public function processTernaryGuard(Post $post)
+    {
+        return $post->author
+            ? $post->author->name
+            : null;
+    }
+
+    public function processIssetGuard(Post $post)
+    {
+        return isset($post->author->name);
+    }
+
+    public function processEmptyGuard(Post $post)
+    {
+        return empty($post->author->name);
+    }
+
+    public function processNullsafeAuthor(Post $post)
+    {
+        return $post->author?->profile?->name;
+    }
+
+    public function processComparedTitle(Post $post)
+    {
+        return $post->title === 'published';
+    }
 }

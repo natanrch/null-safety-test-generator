@@ -25,4 +25,11 @@ class GetServiceController
 
         return response()->json(['ok' => true]);
     }
+
+    public function safeViewResponse(Post $post)
+    {
+        $this->helper->handleSafely($post);
+
+        return view('posts.empty', ['post' => $post]);
+    }
 }

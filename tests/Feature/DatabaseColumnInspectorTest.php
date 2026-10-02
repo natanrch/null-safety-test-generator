@@ -9,6 +9,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\PostWithoutFactory;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Profile;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
+use Illuminate\Database\Eloquent\Model;
 
 class DatabaseColumnInspectorTest extends TestCase
 {
@@ -67,7 +68,60 @@ class DatabaseColumnInspectorTest extends TestCase
 
         $this->assertSame([
             'generated' => false,
-            'message' => 'Column posts.id does not accept null; the scenario was skipped.',
+            'message' => 'Property posts.id is the model primary key; the null scenario was skipped.',
+        ], $result);
+    }
+
+    public function test_it_discards_a_custom_model_primary_key_without_inspecting_the_schema(): void
+    {
+        $model = new class extends Model
+        {
+            protected $table = 'posts';
+
+            protected $primaryKey = 'external_key';
+        };
+        $inspector = new class extends DatabaseColumnInspector
+        {
+            public function inspect(string $modelClass, string $columnName): array
+            {
+                throw new \RuntimeException('The schema must not be inspected.');
+            }
+        };
+
+        $result = (new FactoryTestGenerator($inspector))->generate(
+            $this->scenarioFor('external_key', $model::class)
+        );
+
+        $this->assertFalse($result['generated']);
+        $this->assertStringContainsString(
+            'is the model primary key',
+            $result['message']
+        );
+    }
+
+    public function test_it_skips_a_real_model_scenario_when_nullability_cannot_be_inspected(): void
+    {
+        $inspector = new class extends DatabaseColumnInspector
+        {
+            public function inspect(string $modelClass, string $columnName): array
+            {
+                return [
+                    'inspected' => false,
+                    'exists' => false,
+                    'nullable' => null,
+                    'primary' => false,
+                    'message' => 'Database unavailable.',
+                ];
+            }
+        };
+
+        $result = (new FactoryTestGenerator($inspector))->generate(
+            $this->scenarioFor('title')
+        );
+
+        $this->assertSame([
+            'generated' => false,
+            'message' => 'Could not inspect whether posts.title accepts null; the scenario was skipped.',
         ], $result);
     }
 

@@ -173,4 +173,78 @@ class WriteTestGenerationServiceTest extends TestCase
             $result['code']
         );
     }
+
+    public function test_it_does_not_generate_a_null_primary_key_scenario(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/{post}/process-id', [
+                PostController::class,
+                'processId',
+            ])
+            ->name('posts.process-id');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'processId');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(1, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringNotContainsString(
+            "'id' => null",
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_the_missing_relationship_but_not_its_terminal_id(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/{post}/process-author-id', [
+                PostController::class,
+                'processAuthorId',
+            ])
+            ->name('posts.process-author-id');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'processAuthorId');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(2, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            "['author_id' => null]",
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            "['id' => null]",
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            '// This route does not require route parameters.',
+            $this->scenarioMethod(
+                $result['code'],
+                'test_posts_process_author_id_does_not_fail_when_post_author_is_null'
+            )
+        );
+    }
+
+    private function scenarioMethod(string $code, string $method): string
+    {
+        $start = strpos($code, 'public function ' . $method);
+
+        if ($start === false) {
+            return '';
+        }
+
+        $next = strpos($code, 'public function ', $start + 1);
+
+        return $next === false
+            ? substr($code, $start)
+            : substr($code, $start, $next - $start);
+    }
 }

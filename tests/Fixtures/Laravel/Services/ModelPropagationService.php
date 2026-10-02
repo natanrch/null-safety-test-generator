@@ -15,4 +15,9 @@ class ModelPropagationService
     {
         return strtoupper($post->author->profile->name);
     }
+
+    public function handleSafely(Post $post): string
+    {
+        return $post->author->profile->name ?? 'unknown';
+    }
 }
