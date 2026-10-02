@@ -418,4 +418,35 @@ PHP,
             $result['code']
         );
     }
+
+    public function test_it_uses_get_json_for_a_json_response_scenario(): void
+    {
+        $target = [
+            'model' => FakePost::class,
+            'property' => 'title',
+            'kind' => 'attribute',
+        ];
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'post',
+            'rootClass' => FakePost::class,
+            'rootType' => 'object',
+            'path' => ['title'],
+            'resolvedPath' => [$target],
+            'target' => $target,
+            'strategy' => 'null_attribute',
+            'responseType' => 'json',
+        ], [
+            'name' => 'api.posts.show',
+            'method' => 'GET',
+            'parameters' => ['post' => 'post'],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$response = $this->getJson(',
+            $result['code']
+        );
+    }
 }

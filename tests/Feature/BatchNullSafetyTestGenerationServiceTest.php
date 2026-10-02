@@ -6,6 +6,7 @@ use Illuminate\Routing\Router;
 use Natan\NullSafetyTestGenerator\Services\BatchNullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\ApiPostController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\JsonPostController;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class BatchNullSafetyTestGenerationServiceTest extends TestCase
@@ -86,6 +87,32 @@ class BatchNullSafetyTestGenerationServiceTest extends TestCase
         $this->assertStringContainsString(
             'does not exist; the test could not be generated.',
             implode("\n", $result['warnings'])
+        );
+    }
+
+    public function test_it_includes_json_get_routes_in_the_application_file(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/api/posts/{post}/profile', [
+                JsonPostController::class,
+                'jsonResponse',
+            ])
+            ->name('api.posts.profile');
+
+        $result = $this->app
+            ->make(BatchNullSafetyTestGenerationService::class)
+            ->generate();
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(2, $result['analyzedRoutes']);
+        $this->assertSame(4, $result['generatedTests']);
+        $this->assertStringContainsString(
+            'test_api_posts_profile_as_json_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$response = $this->getJson(',
+            $result['code']
         );
     }
 }

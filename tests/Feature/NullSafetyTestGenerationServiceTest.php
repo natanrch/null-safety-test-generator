@@ -17,6 +17,7 @@ use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 use Natan\NullSafetyTestGenerator\Services\NullSafetyTestGenerationService;
 use Natan\NullSafetyTestGenerator\Services\ViewAnalysisService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\JsonPostController;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class NullSafetyTestGenerationServiceTest extends TestCase
@@ -86,5 +87,67 @@ class NullSafetyTestGenerationServiceTest extends TestCase
             2,
             substr_count($result['code'], 'public function test_')
         );
+    }
+
+    public function test_it_generates_get_json_tests_for_a_json_controller(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/api/posts/{post}/profile', [
+                JsonPostController::class,
+                'jsonResponse',
+            ])
+            ->name('api.posts.profile');
+
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generate(JsonPostController::class, 'jsonResponse');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(2, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            '$response = $this->getJson(',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'when_post_author_profile_is_null',
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_view_and_json_scenarios_for_a_mixed_route(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/posts/{post}/mixed', [
+                JsonPostController::class,
+                'mixed',
+            ])
+            ->name('posts.mixed');
+
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generate(JsonPostController::class, 'mixed');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(4, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'test_posts_mixed_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_posts_mixed_as_json_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString('$this->get(', $result['code']);
+        $this->assertStringContainsString('$this->getJson(', $result['code']);
     }
 }

@@ -64,12 +64,15 @@ class FeatureTestGenerator
         $routeCall = $this->generateRouteCall($route, $scenario);
         $statusAssertions = $this->generateStatusAssertions($scenario);
 
+        $requestMethod = ($scenario['responseType'] ?? null) === 'json'
+            ? 'getJson'
+            : 'get';
         $code = implode("\n", [
             'public function ' . $methodName . '(): void',
             '{',
             $factoryCode,
             '',
-            '    $response = $this->get(',
+            '    $response = $this->' . $requestMethod . '(',
             '        ' . $routeCall,
             '    );',
             '',
@@ -236,6 +239,9 @@ class FeatureTestGenerator
     ): string 
     {
         $routeName = $this->normalizeName($route['name']);
+        $routeName .= ($scenario['responseType'] ?? null) === 'json'
+            ? '_as_json'
+            : '';
         $root = $this->normalizeName($scenario['root']);
         $path = array_map(
             fn (mixed $segment): string => $this->normalizeName(

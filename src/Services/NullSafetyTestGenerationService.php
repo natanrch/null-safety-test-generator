@@ -3,10 +3,14 @@
 namespace Natan\NullSafetyTestGenerator\Services;
 
 use Illuminate\Support\Str;
+use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
+use Natan\NullSafetyTestGenerator\Analyzers\JsonResponseAnalyzer;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestGenerator;
 use Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator;
 use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
+use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
+use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
 
 class NullSafetyTestGenerationService
 {
@@ -15,8 +19,15 @@ class NullSafetyTestGenerationService
         private NullScenarioGenerator $nullScenarioGenerator,
         private RouteScanner $routeScanner,
         private FeatureTestGenerator $featureTestGenerator,
-        private FeatureTestFileGenerator $featureTestFileGenerator
+        private FeatureTestFileGenerator $featureTestFileGenerator,
+        private ?JsonResponseAnalyzer $jsonResponseAnalyzer = null
     ) {
+        $this->jsonResponseAnalyzer ??= new JsonResponseAnalyzer(
+            new ControllerMethodAnalyzer(),
+            new EloquentAccessChainResolver(
+                new EloquentRelationshipResolver()
+            )
+        );
     }
 
     public function generate(
@@ -53,17 +64,42 @@ class NullSafetyTestGenerationService
             $controllerClass,
             $controllerMethod
         );
+        $jsonAnalysis = $this->jsonResponseAnalyzer->analyze(
+            $controllerClass,
+            $controllerMethod
+        );
 
-        if ($viewAnalysis === []) {
+        if ($viewAnalysis === [] && $jsonAnalysis === []) {
             return $this->failure(
-                'The controller view could not be analyzed; no tests were generated.',
+                'The controller response could not be analyzed; no tests were generated.',
                 'no_view'
             );
         }
 
-        $scenarios = $this->nullScenarioGenerator->generate(
-            $viewAnalysis
-        );
+        $scenarios = [];
+
+        foreach ([$viewAnalysis, $jsonAnalysis] as $analysis) {
+            if ($analysis === []) {
+                continue;
+            }
+
+            $analysisScenarios = $this->nullScenarioGenerator->generate(
+                $analysis
+            );
+
+            if (($analysis['responseType'] ?? null) === 'json') {
+                $analysisScenarios = array_map(
+                    static function (array $scenario): array {
+                        $scenario['responseType'] = 'json';
+
+                        return $scenario;
+                    },
+                    $analysisScenarios
+                );
+            }
+
+            $scenarios = [...$scenarios, ...$analysisScenarios];
+        }
 
         if ($scenarios === []) {
             return $this->failure(
