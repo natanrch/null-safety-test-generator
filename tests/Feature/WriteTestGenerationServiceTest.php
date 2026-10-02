@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Feature;
 use Illuminate\Routing\Router;
 use Natan\NullSafetyTestGenerator\Services\WriteTestGenerationService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PromotedServiceController;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class WriteTestGenerationServiceTest extends TestCase
@@ -137,6 +138,38 @@ class WriteTestGenerationServiceTest extends TestCase
         );
         $this->assertStringContainsString(
             "::factory()->state(['name' => null])",
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_null_scenarios_found_inside_a_service(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/posts/{post}/service-process', [
+                PromotedServiceController::class,
+                'process',
+            ])
+            ->name('posts.service-process');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PromotedServiceController::class, 'process');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(4, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'test_posts_service_process_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_posts_service_process_does_not_fail_when_post_author_profile_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_posts_service_process_does_not_fail_when_post_author_profile_name_is_null',
             $result['code']
         );
     }
