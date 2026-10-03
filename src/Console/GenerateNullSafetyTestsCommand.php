@@ -13,13 +13,13 @@ use Throwable;
 class GenerateNullSafetyTestsCommand extends Command
 {
     protected $signature = 'null-safety:generate
-        {--all : Generate tests for all supported GET, POST, PUT and PATCH controller routes}
+        {--all : Generate tests for all supported GET, POST, PUT, PATCH and DELETE controller routes}
         {--controller= : Fully qualified controller class}
         {--method=show : Controller method}
         {--output= : Directory where the generated test will be written}
         {--force : Update an existing file by appending missing tests}';
 
-    protected $description = 'Generate null-safety feature tests for a controller view';
+    protected $description = 'Generate null-safety feature tests for controller routes';
 
     public function handle(
         NullSafetyTestGenerationService $generator,
@@ -97,7 +97,7 @@ class GenerateNullSafetyTestsCommand extends Command
             $route = $routeScanner->find($controller, $method);
             $generatedFile = in_array(
                 strtoupper($route['method'] ?? ''),
-                ['POST', 'PUT', 'PATCH'],
+                ['POST', 'PUT', 'PATCH', 'DELETE'],
                 true
             )
                 ? $writeGenerator->generate($controller, $method, $route)

@@ -65,6 +65,33 @@ class BatchNullSafetyTestGenerationServiceTest extends TestCase
         );
     }
 
+    public function test_it_adds_delete_route_tests_to_the_application_file(): void
+    {
+        $this->app->make(Router::class)
+            ->delete('/posts/{post}', [PostController::class, 'destroy'])
+            ->name('posts.destroy');
+
+        $result = $this->app
+            ->make(BatchNullSafetyTestGenerationService::class)
+            ->generate();
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(2, $result['analyzedRoutes']);
+        $this->assertSame(3, $result['generatedTests']);
+        $this->assertStringContainsString(
+            'test_posts_destroy_does_not_return_a_server_error_for_delete_request',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$response = $this->delete(',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "['reason' => 'test']",
+            $result['code']
+        );
+    }
+
     public function test_it_skips_a_write_route_without_factory_and_keeps_valid_tests(): void
     {
         $this->app->make(Router::class)

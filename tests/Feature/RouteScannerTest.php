@@ -115,7 +115,7 @@ class RouteScannerTest extends TestCase
         ], $result['parameterValues']);
     }
 
-    public function test_it_lists_post_put_and_patch_controller_routes(): void
+    public function test_it_lists_post_put_patch_and_delete_controller_routes(): void
     {
         $router = $this->app->make(Router::class);
         $router->post('/posts', [PostController::class, 'store'])
@@ -124,17 +124,25 @@ class RouteScannerTest extends TestCase
             ->name('posts.update');
         $router->patch('/posts/{post}', [PostController::class, 'patch'])
             ->name('posts.patch');
+        $router->delete('/posts/{post}', [PostController::class, 'destroy'])
+            ->name('posts.destroy');
 
         $routes = (new RouteScanner($router))->allWriteControllerRoutes();
 
         $this->assertSame(
-            ['POST', 'PUT', 'PATCH'],
+            ['POST', 'PUT', 'PATCH', 'DELETE'],
             array_column($routes, 'method')
         );
         $this->assertSame(
-            ['posts.store', 'posts.update', 'posts.patch'],
+            [
+                'posts.store',
+                'posts.update',
+                'posts.patch',
+                'posts.destroy',
+            ],
             array_column($routes, 'name')
         );
         $this->assertSame(Post::class, $routes[1]['parameterModels']['post']['class']);
+        $this->assertSame(Post::class, $routes[3]['parameterModels']['post']['class']);
     }
 }

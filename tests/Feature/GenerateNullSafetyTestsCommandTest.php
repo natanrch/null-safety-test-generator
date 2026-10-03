@@ -25,6 +25,7 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
     {
         foreach ([
             'PostsShowNullSafetyTest.php',
+            'PostsDestroyWriteSafetyTest.php',
             'ApplicationNullSafetyTest.php',
         ] as $fileName) {
             $generatedFile = $this->outputDirectory . '/' . $fileName;
@@ -100,6 +101,35 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
             ->assertFailed();
 
         $this->assertDirectoryDoesNotExist($this->outputDirectory);
+    }
+
+    public function test_it_generates_a_delete_test_file(): void
+    {
+        $this->app->make(Router::class)
+            ->delete('/posts/{post}', [PostController::class, 'destroy'])
+            ->name('posts.destroy');
+
+        $this->artisan('null-safety:generate', [
+            '--controller' => PostController::class,
+            '--method' => 'destroy',
+            '--output' => $this->outputDirectory,
+        ])
+            ->expectsOutputToContain('Null-safety test generated:')
+            ->assertSuccessful();
+
+        $path = $this->outputDirectory
+            . '/PostsDestroyWriteSafetyTest.php';
+        $code = file_get_contents($path);
+
+        $this->assertFileExists($path);
+        $this->assertStringContainsString(
+            '$response = $this->delete(',
+            $code
+        );
+        $this->assertStringContainsString(
+            "['reason' => 'test']",
+            $code
+        );
     }
 
     public function test_it_reports_skipped_scenarios_and_writes_valid_tests(): void

@@ -144,7 +144,7 @@ class BatchNullSafetyTestGenerationService
         if ($testMethods === []) {
             return [
                 'generated' => false,
-                'message' => 'No analyzable controller views produced valid tests.',
+                'message' => 'No analyzable controller routes produced valid tests.',
                 'warnings' => $warnings,
             ];
         }
@@ -176,7 +176,7 @@ class BatchNullSafetyTestGenerationService
     {
         return in_array(
             strtoupper($route['method'] ?? ''),
-            ['POST', 'PUT', 'PATCH'],
+            ['POST', 'PUT', 'PATCH', 'DELETE'],
             true
         );
     }

@@ -12,6 +12,60 @@ use RuntimeException;
 
 class BatchNullSafetyTestGenerationServiceTest extends TestCase
 {
+    public function test_it_sends_delete_routes_to_the_write_generator(): void
+    {
+        $routeScanner = $this->createMock(RouteScanner::class);
+        $getGenerator = $this->createMock(
+            NullSafetyTestGenerationService::class
+        );
+        $fileGenerator = $this->createMock(
+            FeatureTestFileGenerator::class
+        );
+        $writeGenerator = $this->createMock(
+            WriteTestGenerationService::class
+        );
+        $route = [
+            'name' => 'posts.destroy',
+            'method' => 'DELETE',
+            'parameters' => ['post' => 'post'],
+            'controller' => 'PostController',
+            'controllerMethod' => 'destroy',
+        ];
+        $testMethod = 'public function test_delete(): void {}';
+
+        $routeScanner->method('allGetControllerRoutes')->willReturn([]);
+        $routeScanner->method('allWriteControllerRoutes')->willReturn([$route]);
+        $getGenerator->expects($this->never())->method('generateMethods');
+        $writeGenerator->expects($this->once())
+            ->method('generateMethods')
+            ->with('PostController', 'destroy', $route)
+            ->willReturn([
+                'generated' => true,
+                'testMethods' => [$testMethod],
+                'route' => $route,
+                'warnings' => [],
+            ]);
+        $fileGenerator->expects($this->once())
+            ->method('generate')
+            ->with('ApplicationNullSafetyTest', [$testMethod])
+            ->willReturn([
+                'generated' => true,
+                'fileName' => 'ApplicationNullSafetyTest.php',
+                'code' => '<?php // generated',
+            ]);
+
+        $result = (new BatchNullSafetyTestGenerationService(
+            $routeScanner,
+            $getGenerator,
+            $fileGenerator,
+            $writeGenerator
+        ))->generate();
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(1, $result['analyzedRoutes']);
+        $this->assertSame(1, $result['generatedTests']);
+    }
+
     public function test_it_continues_when_one_route_cannot_be_analyzed(): void
     {
         $routeScanner = $this->createMock(RouteScanner::class);

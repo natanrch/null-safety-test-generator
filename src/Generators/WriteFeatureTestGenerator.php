@@ -4,7 +4,7 @@ namespace Natan\NullSafetyTestGenerator\Generators;
 
 class WriteFeatureTestGenerator
 {
-    private const SUPPORTED_METHODS = ['POST', 'PUT', 'PATCH'];
+    private const SUPPORTED_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
     public function __construct(
         private FactoryTestGenerator $factoryTestGenerator

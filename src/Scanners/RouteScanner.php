@@ -121,7 +121,11 @@ class RouteScanner
         foreach ($this->router->getRoutes() as $route) {
             $httpMethod = $this->getPrimaryHttpMethod($route);
 
-            if (! in_array($httpMethod, ['POST', 'PUT', 'PATCH'], true)) {
+            if (! in_array(
+                $httpMethod,
+                ['POST', 'PUT', 'PATCH', 'DELETE'],
+                true
+            )) {
                 continue;
             }
 

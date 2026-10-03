@@ -46,6 +46,22 @@ class PostController
         return response()->noContent();
     }
 
+    public function destroy(Request $request, Post $post)
+    {
+        $request->validate([
+            'reason' => ['required', 'string'],
+        ]);
+
+        return response()->noContent();
+    }
+
+    public function destroyWithAuthor(Post $post)
+    {
+        strtoupper($post->author->name);
+
+        return response()->noContent();
+    }
+
     public function storeInline(Request $request)
     {
         $request->validate([

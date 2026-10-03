@@ -78,6 +78,37 @@ class WriteFeatureTestGeneratorTest extends TestCase
         $this->assertStringContainsString('$this->patch(', $result['code']);
     }
 
+    public function test_it_generates_a_delete_request_with_model_binding_and_payload(): void
+    {
+        $result = $this->generator->generate(
+            ['payload' => ['reason' => 'test']],
+            $this->modelRoute('DELETE', 'posts.destroy')
+        );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            'test_posts_destroy_does_not_return_a_server_error_for_delete_request',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$post = \\' . Post::class . '::factory()->create();',
+            $result['code']
+        );
+        $this->assertStringContainsString('$this->delete(', $result['code']);
+        $this->assertStringContainsString(
+            "route('posts.destroy', ['post' => \$post])",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "['reason' => 'test']",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$this->assertLessThan(500, $response->status());',
+            $result['code']
+        );
+    }
+
     public function test_it_rejects_get_routes(): void
     {
         $result = $this->generator->generate(

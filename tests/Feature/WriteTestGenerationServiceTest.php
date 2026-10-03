@@ -6,6 +6,7 @@ use Illuminate\Routing\Router;
 use Natan\NullSafetyTestGenerator\Services\WriteTestGenerationService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PromotedServiceController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class WriteTestGenerationServiceTest extends TestCase
@@ -55,6 +56,71 @@ class WriteTestGenerationServiceTest extends TestCase
                 . "'status' => 'draft', 'category_id' => \$category->id, 'tags' => []]",
             $result['code']
         );
+    }
+
+    public function test_it_generates_a_delete_file_with_model_binding_and_validated_payload(): void
+    {
+        $this->app->make(Router::class)
+            ->delete('/posts/{post}', [PostController::class, 'destroy'])
+            ->name('posts.destroy');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'destroy');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(
+            'PostsDestroyWriteSafetyTest.php',
+            $result['fileName']
+        );
+        $this->assertStringContainsString(
+            '$post = \\' . Post::class . '::factory()->create();',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$response = $this->delete(',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "route('posts.destroy', ['post' => \$post])",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "['reason' => 'test']",
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_null_scenarios_for_a_delete_relationship_chain(): void
+    {
+        $this->app->make(Router::class)
+            ->delete('/posts/{post}/with-author', [
+                PostController::class,
+                'destroyWithAuthor',
+            ])
+            ->name('posts.destroy-with-author');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'destroyWithAuthor');
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(3, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'test_posts_destroy_with_author_does_not_fail_when_post_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_posts_destroy_with_author_does_not_fail_when_post_author_name_is_null',
+            $result['code']
+        );
+        $this->assertSame(3, substr_count(
+            $result['code'],
+            '$response = $this->delete('
+        ));
     }
 
     public function test_it_creates_the_exists_model_and_nulls_only_accessed_nullable_columns(): void
