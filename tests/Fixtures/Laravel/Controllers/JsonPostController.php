@@ -41,6 +41,9 @@ class JsonPostController
     {
         $author = Author::where('name', 'active')->first();
         $posts = Post::where('author_id', $author->id)->get();
+        $posts = $posts->map(
+            static fn (Post $post): Post => $post
+        );
 
         return $posts;
     }
@@ -48,6 +51,14 @@ class JsonPostController
     public function collectionUsingFindRoot()
     {
         $author = Author::find(1);
+        $posts = Post::where('author_id', $author->id)->get();
+
+        return $posts;
+    }
+
+    public function collectionUsingFirstWhereRoot()
+    {
+        $author = Author::firstWhere('name', 'active');
         $posts = Post::where('author_id', $author->id)->get();
 
         return $posts;

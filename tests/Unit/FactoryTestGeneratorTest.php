@@ -7,10 +7,28 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeAuthor;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeModelWithoutFactory;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeProfile;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author as RouteAuthor;
 use PHPUnit\Framework\TestCase;
 
 class FactoryTestGeneratorTest extends TestCase
 {
+    public function test_it_generates_a_constrained_model_precondition(): void
+    {
+        $result = (new FactoryTestGenerator())->generateModelPrecondition([
+            'root' => 'author',
+            'class' => RouteAuthor::class,
+            'retrievalMethod' => 'first',
+            'constraints' => ['name' => 'active'],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(implode("\n", [
+            '$author = \\' . RouteAuthor::class . '::factory()->create([',
+            "    'name' => 'active',",
+            ']);',
+        ]), $result['code']);
+    }
+
     public function test_it_generates_factory_code_when_the_factory_exists(): void
     {
         $generator = new FactoryTestGenerator();

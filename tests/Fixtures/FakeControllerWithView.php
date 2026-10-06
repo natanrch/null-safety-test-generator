@@ -20,4 +20,13 @@ class FakeControllerWithView
             'objects' => $objects,
         ]);
     }
+
+    public function aliased()
+    {
+        $records = AnotherFakeObject::all();
+
+        return view('fixtures.objects.show', [
+            'objects' => $records,
+        ]);
+    }
 }

@@ -106,6 +106,72 @@ class FactoryTestGenerator
         ];
     }
 
+    public function generateModelPrecondition(array $precondition): array
+    {
+        $modelClass = $precondition['class'] ?? null;
+        $variable = $precondition['root'] ?? null;
+
+        if (
+            ! is_string($modelClass)
+            || ! class_exists($modelClass)
+            || ! is_subclass_of($modelClass, Model::class)
+        ) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'The prerequisite model class %s is invalid; the test could not be generated.',
+                    is_string($modelClass) ? $modelClass : 'unknown'
+                ),
+            ];
+        }
+
+        if (! $this->factoryExists($modelClass)) {
+            return $this->factoryNotFoundResult($modelClass);
+        }
+
+        if (
+            ! is_string($variable)
+            || preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) !== 1
+        ) {
+            return [
+                'generated' => false,
+                'message' => 'The prerequisite model variable is invalid; the test could not be generated.',
+            ];
+        }
+
+        $states = [];
+
+        foreach ($precondition['constraints'] ?? [] as $property => $value) {
+            if (
+                ! is_string($property)
+                || preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $property) !== 1
+            ) {
+                continue;
+            }
+
+            $states[] = var_export($property, true)
+                . ' => ' . var_export($value, true);
+        }
+
+        if ($states === []) {
+            $factory = '\\' . $modelClass . '::factory()->create();';
+        } else {
+            $factory = implode("\n", [
+                '\\' . $modelClass . '::factory()->create([',
+                ...array_map(
+                    static fn (string $state): string => '    ' . $state . ',',
+                    $states
+                ),
+                ']);',
+            ]);
+        }
+
+        return [
+            'generated' => true,
+            'code' => '$' . $variable . ' = ' . $factory,
+        ];
+    }
+
     public function generate(array $scenario): array
     {
         $modelClass = $scenario['rootClass'] ?? null;

@@ -4,10 +4,11 @@ namespace Natan\NullSafetyTestGenerator\Tests\Unit;
 
 use Natan\NullSafetyTestGenerator\Generators\FactoryTestGenerator;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestGenerator;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author as RouteAuthor;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post as RoutePost;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\PostWithoutFactory;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeAuthor;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
-use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post as RoutePost;
-use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author as RouteAuthor;
 use PHPUnit\Framework\TestCase;
 
 class FeatureTestGeneratorTest extends TestCase
@@ -336,9 +337,84 @@ PHP,
             '$this->assertLessThan(500, $response->status());',
             $result['code']
         );
-        $this->assertStringContainsString(
+        $this->assertStringNotContainsString(
             '$this->assertNotSame(404, $response->status());',
             $result['code']
+        );
+    }
+
+    public function test_it_creates_model_preconditions_before_testing_an_empty_collection(): void
+    {
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'posts',
+            'rootClass' => FakePost::class,
+            'rootType' => 'collection',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakePost::class,
+                'kind' => 'collection',
+            ],
+            'strategy' => 'empty_root_collection',
+            'modelPreconditions' => [[
+                'root' => 'author',
+                'class' => RouteAuthor::class,
+                'retrievalMethod' => 'first',
+                'constraints' => ['name' => 'active'],
+            ]],
+        ], [
+            'name' => 'api.posts.by-author',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$author = \\' . RouteAuthor::class . "::factory()->create([\n"
+                . "        'name' => 'active',\n    ]);",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '// No ' . FakePost::class
+                . ' records are created for this empty collection scenario.',
+            $result['code']
+        );
+    }
+
+    public function test_it_skips_a_scenario_when_a_precondition_has_no_factory(): void
+    {
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'posts',
+            'rootClass' => FakePost::class,
+            'rootType' => 'collection',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakePost::class,
+                'kind' => 'collection',
+            ],
+            'strategy' => 'empty_root_collection',
+            'modelPreconditions' => [[
+                'root' => 'dependency',
+                'class' => PostWithoutFactory::class,
+                'retrievalMethod' => 'first',
+                'constraints' => [],
+            ]],
+        ], [
+            'name' => 'posts.index',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertFalse($result['generated']);
+        $this->assertStringContainsString(
+            'Factory for model ' . PostWithoutFactory::class
+                . ' does not exist',
+            $result['message']
         );
     }
 

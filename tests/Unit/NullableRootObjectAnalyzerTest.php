@@ -50,6 +50,17 @@ class NullableRootObjectAnalyzerTest extends TestCase
         $this->assertTrue($result[0]['nullableRoot']);
     }
 
+    public function test_it_identifies_a_dereferenced_object_loaded_with_first_where(): void
+    {
+        $result = (new NullableRootObjectAnalyzer())->analyze(
+            JsonPostController::class,
+            'collectionUsingFirstWhereRoot'
+        );
+
+        $this->assertSame('author', $result[0]['root']);
+        $this->assertSame('firstWhere', $result[0]['retrievalMethod']);
+    }
+
     public function test_it_ignores_a_nullable_object_that_is_not_dereferenced(): void
     {
         $result = (new NullableRootObjectAnalyzer())->analyze(

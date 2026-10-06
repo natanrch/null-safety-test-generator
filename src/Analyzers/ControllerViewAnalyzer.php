@@ -185,8 +185,13 @@ class ControllerViewAnalyzer
                 continue;
             }
 
-            $viewVariables[$item->key->value] =
-                $analyzedVariables[$variableName];
+            $metadata = $analyzedVariables[$variableName];
+
+            if ($item->key->value !== $variableName) {
+                $metadata['sourceVariable'] = $variableName;
+            }
+
+            $viewVariables[$item->key->value] = $metadata;
         }
 
         return $viewVariables;

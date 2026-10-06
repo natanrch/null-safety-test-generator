@@ -59,6 +59,16 @@ class ControllerViewAnalyzerTest extends TestCase
         );
     }
 
+    public function test_it_preserves_the_source_of_an_aliased_view_variable(): void
+    {
+        $result = (new ControllerViewAnalyzer(
+            new ControllerMethodAnalyzer()
+        ))->analyze(FakeControllerWithView::class, 'aliased');
+
+        $this->assertSame('records', $result['variables']['objects']
+            ['sourceVariable'] ?? null);
+    }
+
     public function test_it_preserves_request_input_metadata_for_a_view_variable(): void
     {
         $result = (new ControllerViewAnalyzer(

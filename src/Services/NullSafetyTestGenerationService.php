@@ -3,6 +3,7 @@
 namespace Natan\NullSafetyTestGenerator\Services;
 
 use Illuminate\Support\Str;
+use Natan\NullSafetyTestGenerator\Analyzers\ControllerDataDependencyAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\JsonResponseAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ModelPropagationAnalyzer;
@@ -26,7 +27,8 @@ class NullSafetyTestGenerationService
         private ?JsonResponseAnalyzer $jsonResponseAnalyzer = null,
         private ?ModelPropagationAnalyzer $modelPropagationAnalyzer = null,
         private ?ControllerMethodExecutionInspector $methodExecutionInspector = null,
-        private ?NullableRootObjectAnalyzer $nullableRootObjectAnalyzer = null
+        private ?NullableRootObjectAnalyzer $nullableRootObjectAnalyzer = null,
+        private ?ControllerDataDependencyAnalyzer $dataDependencyAnalyzer = null
     ) {
         $this->jsonResponseAnalyzer ??= new JsonResponseAnalyzer(
             new ControllerMethodAnalyzer(),
@@ -43,6 +45,8 @@ class NullSafetyTestGenerationService
             new ControllerMethodExecutionInspector();
         $this->nullableRootObjectAnalyzer ??=
             new NullableRootObjectAnalyzer();
+        $this->dataDependencyAnalyzer ??=
+            new ControllerDataDependencyAnalyzer();
     }
 
     public function generate(
@@ -101,6 +105,10 @@ class NullSafetyTestGenerationService
             $controllerClass,
             $controllerMethod
         );
+        $modelPreconditions = $this->dataDependencyAnalyzer->analyze(
+            $controllerClass,
+            $controllerMethod
+        );
         $additionalAccesses = $this->mergeAccesses(
             $propagatedAccesses,
             $nullableRootAccesses
@@ -128,6 +136,15 @@ class NullSafetyTestGenerationService
                 'no_view'
             );
         }
+
+        $viewAnalysis = $this->applyModelPreconditions(
+            $viewAnalysis,
+            $modelPreconditions
+        );
+        $jsonAnalysis = $this->applyModelPreconditions(
+            $jsonAnalysis,
+            $modelPreconditions
+        );
 
         $scenarios = [];
 
@@ -249,6 +266,38 @@ class NullSafetyTestGenerationService
         }
 
         return array_values($merged);
+    }
+
+    private function applyModelPreconditions(
+        array $analysis,
+        array $preconditionsByVariable
+    ): array {
+        if ($analysis === [] || $preconditionsByVariable === []) {
+            return $analysis;
+        }
+
+        $analysis['accesses'] = array_map(
+            static function (array $access) use (
+                $preconditionsByVariable
+            ): array {
+                $root = $access['sourceVariable']
+                    ?? $access['root']
+                    ?? null;
+
+                if (
+                    is_string($root)
+                    && isset($preconditionsByVariable[$root])
+                ) {
+                    $access['modelPreconditions'] =
+                        $preconditionsByVariable[$root];
+                }
+
+                return $access;
+            },
+            $analysis['accesses'] ?? []
+        );
+
+        return $analysis;
     }
 
     private function failure(string $message, ?string $reason = null): array

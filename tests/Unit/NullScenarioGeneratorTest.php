@@ -340,6 +340,31 @@ class NullScenarioGeneratorTest extends TestCase
         $this->assertSame('null_attribute', $result[1]['strategy']);
     }
 
+    public function test_it_preserves_model_preconditions_for_a_collection_scenario(): void
+    {
+        $preconditions = [[
+            'root' => 'author',
+            'class' => FakeAuthor::class,
+            'retrievalMethod' => 'first',
+            'constraints' => ['name' => 'active'],
+        ]];
+
+        $result = (new NullScenarioGenerator())->generate([
+            'accesses' => [[
+                'root' => 'posts',
+                'class' => FakePost::class,
+                'type' => 'collection',
+                'resolvedAccesses' => [],
+                'modelPreconditions' => $preconditions,
+            ]],
+        ]);
+
+        $this->assertSame(
+            $preconditions,
+            $result[0]['modelPreconditions'] ?? null
+        );
+    }
+
     public function test_it_ignores_an_attribute_used_only_as_direct_output(): void
     {
         $result = $this->generateAttributeScenarios([

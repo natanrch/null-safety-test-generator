@@ -31,7 +31,7 @@ class NullScenarioGenerator
                 ]);
 
                 if (! isset($generatedScenarios[$scenarioKey])) {
-                    $scenarios[] = [
+                    $scenario = [
                         'root' => $analyzedAccess['root'],
                         'rootClass' => $analyzedAccess['class'],
                         'rootType' => $analyzedAccess['type'],
@@ -43,6 +43,10 @@ class NullScenarioGenerator
                         ],
                         'strategy' => 'missing_root_object',
                     ];
+                    $scenarios[] = $this->withModelPreconditions(
+                        $scenario,
+                        $analyzedAccess
+                    );
                     $generatedScenarios[$scenarioKey] = true;
                 }
             }
@@ -61,7 +65,7 @@ class NullScenarioGenerator
                 ]);
 
                 if (! isset($generatedScenarios[$scenarioKey])) {
-                    $scenarios[] = [
+                    $scenario = [
                         'root' => $analyzedAccess['root'],
                         'rootClass' => $analyzedAccess['class'],
                         'rootType' => $analyzedAccess['type'],
@@ -74,6 +78,10 @@ class NullScenarioGenerator
                         'strategy' => 'missing_request_parameter',
                         'input' => $input,
                     ];
+                    $scenarios[] = $this->withModelPreconditions(
+                        $scenario,
+                        $analyzedAccess
+                    );
                     $generatedScenarios[$scenarioKey] = true;
                 }
             }
@@ -106,7 +114,10 @@ class NullScenarioGenerator
                         $scenario['input'] = $analyzedAccess['input'];
                     }
 
-                    $scenarios[] = $scenario;
+                    $scenarios[] = $this->withModelPreconditions(
+                        $scenario,
+                        $analyzedAccess
+                    );
                     $generatedScenarios[$scenarioKey] = true;
                 }
             }
@@ -164,7 +175,10 @@ class NullScenarioGenerator
                     $scenario['input'] = $analyzedAccess['input'];
                 }
 
-                $scenarios[] = $scenario;
+                $scenarios[] = $this->withModelPreconditions(
+                    $scenario,
+                    $analyzedAccess
+                );
 
                 $generatedScenarios[$scenarioKey] = true;
             }
@@ -188,6 +202,19 @@ class NullScenarioGenerator
             },
             $scenarios
         );
+    }
+
+    private function withModelPreconditions(
+        array $scenario,
+        array $analyzedAccess
+    ): array {
+        $preconditions = $analyzedAccess['modelPreconditions'] ?? [];
+
+        if (is_array($preconditions) && $preconditions !== []) {
+            $scenario['modelPreconditions'] = $preconditions;
+        }
+
+        return $scenario;
     }
 
     private function hasValidRootMetadata(array $analyzedAccess): bool

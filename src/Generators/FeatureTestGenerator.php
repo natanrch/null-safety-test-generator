@@ -49,12 +49,21 @@ class FeatureTestGenerator
             return $requestPreconditionResult;
         }
 
+        $modelPreconditionResult = $this->generateModelPreconditions(
+            $scenario
+        );
+
+        if (($modelPreconditionResult['generated'] ?? false) !== true) {
+            return $modelPreconditionResult;
+        }
+
         $methodName = $this->generateMethodName($scenario, $route);
         $factoryBlocks = $routeFactoryResult['code'];
         $factoryBlocks = [
             ...$factoryBlocks,
             ...$this->generateScalarRouteParameters($route),
             ...$requestPreconditionResult['code'],
+            ...$modelPreconditionResult['code'],
         ];
         $factoryBlocks[] = $factoryResult['code'];
         $factoryCode = $this->indent(
@@ -97,7 +106,11 @@ class FeatureTestGenerator
             ];
         }
 
-        if (($scenario['strategy'] ?? null) === 'missing_root_object') {
+        if (in_array(
+            $scenario['strategy'] ?? null,
+            ['missing_root_object', 'empty_root_collection'],
+            true
+        )) {
             return [
                 '    $this->assertLessThan(500, $response->status());',
             ];
@@ -225,6 +238,43 @@ class FeatureTestGenerator
             }
 
             $code[] = $factory['code'];
+        }
+
+        return ['generated' => true, 'code' => $code];
+    }
+
+    private function generateModelPreconditions(array $scenario): array
+    {
+        $code = [];
+        $generatedRoots = [];
+
+        foreach ($scenario['modelPreconditions'] ?? [] as $precondition) {
+            if (! is_array($precondition)) {
+                continue;
+            }
+
+            $root = $precondition['root'] ?? null;
+
+            if (
+                ! is_string($root)
+                || isset($generatedRoots[$root])
+                || (
+                    ($scenario['strategy'] ?? null) === 'missing_root_object'
+                    && $root === ($scenario['root'] ?? null)
+                )
+            ) {
+                continue;
+            }
+
+            $factory = $this->factoryTestGenerator
+                ->generateModelPrecondition($precondition);
+
+            if (($factory['generated'] ?? false) !== true) {
+                return $factory;
+            }
+
+            $code[] = $factory['code'];
+            $generatedRoots[$root] = true;
         }
 
         return ['generated' => true, 'code' => $code];

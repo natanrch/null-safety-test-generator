@@ -13,7 +13,11 @@ use Throwable;
 
 class NullableRootObjectAnalyzer
 {
-    private const NULLABLE_RETRIEVAL_METHODS = ['find', 'first'];
+    private const NULLABLE_RETRIEVAL_METHODS = [
+        'find',
+        'first',
+        'firstWhere',
+    ];
 
     public function analyze(
         string $controllerClass,

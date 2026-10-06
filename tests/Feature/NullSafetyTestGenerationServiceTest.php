@@ -174,6 +174,12 @@ class NullSafetyTestGenerationServiceTest extends TestCase
             'test_api_posts_by_author_as_json_does_not_fail_when_posts_is_empty',
             $result['code']
         );
+        $this->assertStringContainsString(
+            '$author = \\'
+                . \Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author::class
+                . "::factory()->create([\n            'name' => 'active',",
+            $result['code']
+        );
     }
 
     public function test_it_generates_view_and_json_scenarios_for_a_mixed_route(): void

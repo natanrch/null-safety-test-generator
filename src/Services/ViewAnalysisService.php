@@ -92,6 +92,11 @@ class ViewAnalysisService
                 'type' => $variable['type'],
             ];
 
+            if (is_string($variable['sourceVariable'] ?? null)) {
+                $combinedAccess['sourceVariable'] =
+                    $variable['sourceVariable'];
+            }
+
             if (isset($variable['input']) && is_array($variable['input'])) {
                 $combinedAccess['input'] = $variable['input'];
             }
