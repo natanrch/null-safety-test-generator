@@ -3,6 +3,7 @@
 namespace Natan\NullSafetyTestGenerator\Services;
 
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
+use Natan\NullSafetyTestGenerator\Inspectors\ControllerMethodExecutionInspector;
 use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 use Throwable;
 
@@ -78,6 +79,22 @@ class BatchNullSafetyTestGenerationService
                     'total' => $totalRoutes,
                     'route' => $routeLabel,
                     'message' => $exception->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            if (($result['reason'] ?? null) === 'empty_method') {
+                $message = $result['message']
+                    ?? ControllerMethodExecutionInspector::EMPTY_METHOD_MESSAGE;
+                $warnings[] = $routeLabel . ': ' . $message;
+
+                $this->reportProgress($progress, [
+                    'status' => 'skipped',
+                    'current' => $currentRoute,
+                    'total' => $totalRoutes,
+                    'route' => $routeLabel,
+                    'message' => $message,
                 ]);
 
                 continue;

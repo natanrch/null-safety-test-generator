@@ -12,6 +12,11 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Requests\StorePostReque
 
 class PostController
 {
+    public function emptyAction()
+    {
+        // This resource action has not been implemented yet.
+    }
+
     public function show(Post $post)
     {
         return view('posts.show', [

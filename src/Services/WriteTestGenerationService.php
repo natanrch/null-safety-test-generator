@@ -6,6 +6,7 @@ use Illuminate\Support\Str;
 use Natan\NullSafetyTestGenerator\Analyzers\WriteControllerAnalyzer;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
 use Natan\NullSafetyTestGenerator\Generators\WriteFeatureTestGenerator;
+use Natan\NullSafetyTestGenerator\Inspectors\ControllerMethodExecutionInspector;
 use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 
 class WriteTestGenerationService
@@ -14,8 +15,11 @@ class WriteTestGenerationService
         private WriteControllerAnalyzer $controllerAnalyzer,
         private RouteScanner $routeScanner,
         private WriteFeatureTestGenerator $testGenerator,
-        private FeatureTestFileGenerator $fileGenerator
+        private FeatureTestFileGenerator $fileGenerator,
+        private ?ControllerMethodExecutionInspector $methodExecutionInspector = null
     ) {
+        $this->methodExecutionInspector ??=
+            new ControllerMethodExecutionInspector();
     }
 
     public function generate(
@@ -73,6 +77,17 @@ class WriteTestGenerationService
         string $controllerMethod,
         ?array $route = null
     ): array {
+        if ($this->methodExecutionInspector->hasExecutableStatements(
+            $controllerClass,
+            $controllerMethod
+        ) === false) {
+            return [
+                'generated' => false,
+                'message' => ControllerMethodExecutionInspector::EMPTY_METHOD_MESSAGE,
+                'reason' => 'empty_method',
+            ];
+        }
+
         $analysis = $this->controllerAnalyzer->analyze(
             $controllerClass,
             $controllerMethod

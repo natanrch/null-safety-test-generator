@@ -11,6 +11,29 @@ use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class WriteTestGenerationServiceTest extends TestCase
 {
+    public function test_it_skips_an_empty_write_controller_method(): void
+    {
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generateMethods(
+                PostController::class,
+                'emptyAction',
+                [
+                    'name' => 'empty.delete',
+                    'method' => 'DELETE',
+                    'parameters' => [],
+                    'parameterModels' => [],
+                ]
+            );
+
+        $this->assertFalse($result['generated']);
+        $this->assertSame('empty_method', $result['reason']);
+        $this->assertSame(
+            'The controller method has no executable statements; no test was generated.',
+            $result['message']
+        );
+    }
+
     public function test_it_generates_a_complete_put_feature_test_file(): void
     {
         $this->app->make(Router::class)

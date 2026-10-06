@@ -132,6 +132,25 @@ class GenerateNullSafetyTestsCommandTest extends TestCase
         );
     }
 
+    public function test_it_reports_that_an_empty_controller_method_was_skipped(): void
+    {
+        $this->app->make(Router::class)
+            ->delete('/empty/{id}', [PostController::class, 'emptyAction'])
+            ->name('empty.destroy');
+
+        $this->artisan('null-safety:generate', [
+            '--controller' => PostController::class,
+            '--method' => 'emptyAction',
+            '--output' => $this->outputDirectory,
+        ])
+            ->expectsOutputToContain(
+                'The controller method has no executable statements; no test was generated.'
+            )
+            ->assertFailed();
+
+        $this->assertDirectoryDoesNotExist($this->outputDirectory);
+    }
+
     public function test_it_reports_skipped_scenarios_and_writes_valid_tests(): void
     {
         $generator = $this->createMock(

@@ -11,6 +11,44 @@ use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class BatchNullSafetyTestGenerationServiceTest extends TestCase
 {
+    public function test_it_skips_empty_methods_for_every_supported_http_method(): void
+    {
+        $router = $this->app->make(Router::class);
+        $router->get('/empty-get', [PostController::class, 'emptyAction'])
+            ->name('empty.get');
+        $router->post('/empty-post', [PostController::class, 'emptyAction'])
+            ->name('empty.post');
+        $router->put('/empty-put', [PostController::class, 'emptyAction'])
+            ->name('empty.put');
+        $router->patch('/empty-patch', [PostController::class, 'emptyAction'])
+            ->name('empty.patch');
+        $router->delete('/empty-delete', [PostController::class, 'emptyAction'])
+            ->name('empty.delete');
+
+        $result = $this->app
+            ->make(BatchNullSafetyTestGenerationService::class)
+            ->generate();
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(1, $result['analyzedRoutes']);
+        $this->assertSame(2, $result['generatedTests']);
+
+        $warnings = implode("\n", $result['warnings']);
+
+        foreach (['get', 'post', 'put', 'patch', 'delete'] as $method) {
+            $this->assertStringContainsString(
+                'empty.' . $method
+                    . ': The controller method has no executable statements; no test was generated.',
+                $warnings
+            );
+        }
+
+        $this->assertStringNotContainsString(
+            'test_empty_',
+            $result['code']
+        );
+    }
+
     public function test_it_generates_one_file_only_for_get_routes_with_views(): void
     {
         $this->app->make(Router::class)

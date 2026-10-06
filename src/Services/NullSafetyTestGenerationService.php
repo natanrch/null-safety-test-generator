@@ -9,6 +9,7 @@ use Natan\NullSafetyTestGenerator\Analyzers\ModelPropagationAnalyzer;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestGenerator;
 use Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator;
+use Natan\NullSafetyTestGenerator\Inspectors\ControllerMethodExecutionInspector;
 use Natan\NullSafetyTestGenerator\Scanners\RouteScanner;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
@@ -22,7 +23,8 @@ class NullSafetyTestGenerationService
         private FeatureTestGenerator $featureTestGenerator,
         private FeatureTestFileGenerator $featureTestFileGenerator,
         private ?JsonResponseAnalyzer $jsonResponseAnalyzer = null,
-        private ?ModelPropagationAnalyzer $modelPropagationAnalyzer = null
+        private ?ModelPropagationAnalyzer $modelPropagationAnalyzer = null,
+        private ?ControllerMethodExecutionInspector $methodExecutionInspector = null
     ) {
         $this->jsonResponseAnalyzer ??= new JsonResponseAnalyzer(
             new ControllerMethodAnalyzer(),
@@ -35,6 +37,8 @@ class NullSafetyTestGenerationService
                 new EloquentRelationshipResolver()
             )
         );
+        $this->methodExecutionInspector ??=
+            new ControllerMethodExecutionInspector();
     }
 
     public function generate(
@@ -67,6 +71,16 @@ class NullSafetyTestGenerationService
         string $controllerMethod,
         ?array $route = null
     ): array {
+        if ($this->methodExecutionInspector->hasExecutableStatements(
+            $controllerClass,
+            $controllerMethod
+        ) === false) {
+            return $this->failure(
+                ControllerMethodExecutionInspector::EMPTY_METHOD_MESSAGE,
+                'empty_method'
+            );
+        }
+
         $viewAnalysis = $this->viewAnalysisService->analyze(
             $controllerClass,
             $controllerMethod

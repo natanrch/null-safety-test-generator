@@ -23,6 +23,29 @@ use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class NullSafetyTestGenerationServiceTest extends TestCase
 {
+    public function test_it_skips_an_empty_get_controller_method(): void
+    {
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generateMethods(
+                PostController::class,
+                'emptyAction',
+                [
+                    'name' => 'empty.get',
+                    'method' => 'GET',
+                    'parameters' => [],
+                    'parameterModels' => [],
+                ]
+            );
+
+        $this->assertFalse($result['generated']);
+        $this->assertSame('empty_method', $result['reason']);
+        $this->assertSame(
+            'The controller method has no executable statements; no test was generated.',
+            $result['message']
+        );
+    }
+
     public function test_it_orchestrates_the_complete_test_generation_flow(): void
     {
         $factoryTestGenerator = new FactoryTestGenerator();
