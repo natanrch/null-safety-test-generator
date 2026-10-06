@@ -449,4 +449,54 @@ PHP,
             $result['code']
         );
     }
+
+    public function test_it_generates_a_json_test_for_a_missing_root_object(): void
+    {
+        $result = (new FeatureTestGenerator(
+            new FactoryTestGenerator()
+        ))->generate([
+            'root' => 'author',
+            'rootClass' => FakeAuthor::class,
+            'rootType' => 'object',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakeAuthor::class,
+                'kind' => 'root_object',
+            ],
+            'strategy' => 'missing_root_object',
+            'responseType' => 'json',
+        ], [
+            'name' => 'api.posts.index',
+            'method' => 'GET',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            'test_api_posts_index_as_json_does_not_return_a_server_error_when_author_does_not_exist',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '// No ' . FakeAuthor::class
+                . ' record is created for this missing object scenario.',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$response = $this->getJson(',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$this->assertLessThan(500, $response->status());',
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            '$this->assertNotSame(404, $response->status());',
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            '::factory()',
+            $result['code']
+        );
+    }
 }

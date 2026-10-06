@@ -97,6 +97,12 @@ class FeatureTestGenerator
             ];
         }
 
+        if (($scenario['strategy'] ?? null) === 'missing_root_object') {
+            return [
+                '    $this->assertLessThan(500, $response->status());',
+            ];
+        }
+
         return [
             '    $this->assertLessThan(500, $response->status());',
             '    $this->assertNotSame(404, $response->status());',
@@ -268,6 +274,13 @@ class FeatureTestGenerator
                 . '_does_not_fail_when_'
                 . $scenarioDescription
                 . '_is_empty';
+        }
+
+        if (($scenario['strategy'] ?? null) === 'missing_root_object') {
+            return 'test_' . $routeName
+                . '_does_not_return_a_server_error_when_'
+                . $root
+                . '_does_not_exist';
         }
 
         return 'test_' . $routeName

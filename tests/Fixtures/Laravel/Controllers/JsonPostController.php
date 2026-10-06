@@ -3,6 +3,7 @@
 namespace Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers;
 
 use Illuminate\Http\Request;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\NestedPostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostResource;
@@ -31,6 +32,38 @@ class JsonPostController
 
     public function directCollection()
     {
+        $posts = Post::all();
+
+        return $posts;
+    }
+
+    public function collectionUsingNullableRoot()
+    {
+        $author = Author::where('name', 'active')->first();
+        $posts = Post::where('author_id', $author->id)->get();
+
+        return $posts;
+    }
+
+    public function collectionUsingFindRoot()
+    {
+        $author = Author::find(1);
+        $posts = Post::where('author_id', $author->id)->get();
+
+        return $posts;
+    }
+
+    public function collectionUsingRequiredRoot()
+    {
+        $author = Author::where('name', 'active')->firstOrFail();
+        $posts = Post::where('author_id', $author->id)->get();
+
+        return $posts;
+    }
+
+    public function collectionWithUnusedNullableRoot()
+    {
+        $author = Author::where('name', 'active')->first();
         $posts = Post::all();
 
         return $posts;

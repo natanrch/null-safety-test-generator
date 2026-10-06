@@ -23,6 +23,30 @@ class NullScenarioGenerator
                 continue;
             }
 
+            if (($analyzedAccess['nullableRoot'] ?? false) === true) {
+                $scenarioKey = implode('|', [
+                    $analyzedAccess['root'],
+                    $analyzedAccess['class'],
+                    'missing_root_object',
+                ]);
+
+                if (! isset($generatedScenarios[$scenarioKey])) {
+                    $scenarios[] = [
+                        'root' => $analyzedAccess['root'],
+                        'rootClass' => $analyzedAccess['class'],
+                        'rootType' => $analyzedAccess['type'],
+                        'path' => [],
+                        'resolvedPath' => [],
+                        'target' => [
+                            'model' => $analyzedAccess['class'],
+                            'kind' => 'root_object',
+                        ],
+                        'strategy' => 'missing_root_object',
+                    ];
+                    $generatedScenarios[$scenarioKey] = true;
+                }
+            }
+
             $input = $analyzedAccess['input'] ?? null;
 
             if (

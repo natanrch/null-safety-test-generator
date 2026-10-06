@@ -145,6 +145,37 @@ class NullSafetyTestGenerationServiceTest extends TestCase
         );
     }
 
+    public function test_it_generates_a_missing_local_object_scenario_for_a_json_dependency(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/api/posts/by-author', [
+                JsonPostController::class,
+                'collectionUsingNullableRoot',
+            ])
+            ->name('api.posts.by-author');
+
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generate(
+                JsonPostController::class,
+                'collectionUsingNullableRoot'
+            );
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(2, substr_count(
+            $result['code'],
+            'public function test_'
+        ));
+        $this->assertStringContainsString(
+            'test_api_posts_by_author_as_json_does_not_return_a_server_error_when_author_does_not_exist',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'test_api_posts_by_author_as_json_does_not_fail_when_posts_is_empty',
+            $result['code']
+        );
+    }
+
     public function test_it_generates_view_and_json_scenarios_for_a_mixed_route(): void
     {
         $this->app->make(Router::class)

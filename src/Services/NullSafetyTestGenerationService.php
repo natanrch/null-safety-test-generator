@@ -6,6 +6,7 @@ use Illuminate\Support\Str;
 use Natan\NullSafetyTestGenerator\Analyzers\ControllerMethodAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\JsonResponseAnalyzer;
 use Natan\NullSafetyTestGenerator\Analyzers\ModelPropagationAnalyzer;
+use Natan\NullSafetyTestGenerator\Analyzers\NullableRootObjectAnalyzer;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestFileGenerator;
 use Natan\NullSafetyTestGenerator\Generators\FeatureTestGenerator;
 use Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator;
@@ -24,7 +25,8 @@ class NullSafetyTestGenerationService
         private FeatureTestFileGenerator $featureTestFileGenerator,
         private ?JsonResponseAnalyzer $jsonResponseAnalyzer = null,
         private ?ModelPropagationAnalyzer $modelPropagationAnalyzer = null,
-        private ?ControllerMethodExecutionInspector $methodExecutionInspector = null
+        private ?ControllerMethodExecutionInspector $methodExecutionInspector = null,
+        private ?NullableRootObjectAnalyzer $nullableRootObjectAnalyzer = null
     ) {
         $this->jsonResponseAnalyzer ??= new JsonResponseAnalyzer(
             new ControllerMethodAnalyzer(),
@@ -39,6 +41,8 @@ class NullSafetyTestGenerationService
         );
         $this->methodExecutionInspector ??=
             new ControllerMethodExecutionInspector();
+        $this->nullableRootObjectAnalyzer ??=
+            new NullableRootObjectAnalyzer();
     }
 
     public function generate(
@@ -93,19 +97,27 @@ class NullSafetyTestGenerationService
             $controllerClass,
             $controllerMethod
         );
+        $nullableRootAccesses = $this->nullableRootObjectAnalyzer->analyze(
+            $controllerClass,
+            $controllerMethod
+        );
+        $additionalAccesses = $this->mergeAccesses(
+            $propagatedAccesses,
+            $nullableRootAccesses
+        );
 
-        if ($propagatedAccesses !== []) {
+        if ($additionalAccesses !== []) {
             if ($viewAnalysis !== []) {
                 $viewAnalysis['accesses'] = $this->mergeAccesses(
                     $viewAnalysis['accesses'] ?? [],
-                    $propagatedAccesses
+                    $additionalAccesses
                 );
             }
 
             if ($jsonAnalysis !== []) {
                 $jsonAnalysis['accesses'] = $this->mergeAccesses(
                     $jsonAnalysis['accesses'] ?? [],
-                    $propagatedAccesses
+                    $additionalAccesses
                 );
             }
         }

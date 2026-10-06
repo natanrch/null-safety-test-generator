@@ -131,6 +131,16 @@ class FactoryTestGenerator
             ];
         }
 
+        if (($scenario['strategy'] ?? null) === 'missing_root_object') {
+            return [
+                'generated' => true,
+                'code' => sprintf(
+                    '// No %s record is created for this missing object scenario.',
+                    is_string($modelClass) ? $modelClass : 'model'
+                ),
+            ];
+        }
+
         if (($scenario['strategy'] ?? null) === 'missing_request_parameter') {
             $parameter = $scenario['input']['parameter'] ?? 'request parameter';
 

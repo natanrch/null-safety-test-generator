@@ -453,6 +453,35 @@ class NullScenarioGeneratorTest extends TestCase
         $this->assertSame('null_attribute', $result[0]['strategy']);
     }
 
+    public function test_it_generates_a_missing_root_object_scenario(): void
+    {
+        $result = (new NullScenarioGenerator())->generate([
+            'responseType' => 'json',
+            'accesses' => [[
+                'root' => 'author',
+                'class' => FakeAuthor::class,
+                'type' => 'object',
+                'accesses' => [],
+                'resolvedAccesses' => [],
+                'nullableRoot' => true,
+                'retrievalMethod' => 'first',
+            ]],
+        ]);
+
+        $this->assertSame([[
+            'root' => 'author',
+            'rootClass' => FakeAuthor::class,
+            'rootType' => 'object',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakeAuthor::class,
+                'kind' => 'root_object',
+            ],
+            'strategy' => 'missing_root_object',
+        ]], $result);
+    }
+
     private function generateAttributeScenarios(
         array $accesses,
         ?string $usage = null,

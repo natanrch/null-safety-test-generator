@@ -301,6 +301,28 @@ class FactoryTestGeneratorTest extends TestCase
         );
     }
 
+    public function test_it_creates_no_factory_for_a_missing_root_object(): void
+    {
+        $result = (new FactoryTestGenerator())->generate([
+            'root' => 'author',
+            'rootClass' => FakeAuthor::class,
+            'rootType' => 'object',
+            'path' => [],
+            'resolvedPath' => [],
+            'target' => [
+                'model' => FakeAuthor::class,
+                'kind' => 'root_object',
+            ],
+            'strategy' => 'missing_root_object',
+        ]);
+
+        $this->assertSame([
+            'generated' => true,
+            'code' => '// No ' . FakeAuthor::class
+                . ' record is created for this missing object scenario.',
+        ], $result);
+    }
+
     private function attributeScenario(string $modelClass): array
     {
         return [
