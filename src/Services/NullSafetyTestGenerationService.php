@@ -260,6 +260,8 @@ class NullSafetyTestGenerationService
                     $access['type'] ?? null,
                     $access['accesses'] ?? [],
                     $access['usage'] ?? null,
+                    $access['protectedAccessCount'] ?? 0,
+                    $access['protectedAccessIndices'] ?? [],
                 ]);
                 $merged[$key] = $access;
             }

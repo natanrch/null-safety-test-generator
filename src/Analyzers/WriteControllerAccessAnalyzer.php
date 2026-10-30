@@ -40,7 +40,7 @@ class WriteControllerAccessAnalyzer
         $this->analyzeMethod(
             $controllerClass,
             $methodName,
-            $this->entryModelAliases($controllerClass, $methodName, $method),
+            $this->modelParameters($method),
             $results,
             $visited,
             0
@@ -49,172 +49,304 @@ class WriteControllerAccessAnalyzer
         return array_values($results);
     }
 
+    /**
+     * Returns roots that may have been mutated, or null when effects are unknown.
+     * The cache includes incoming facts: the same method can be safe in one
+     * call context and unsafe in another.
+     */
     private function analyzeMethod(
         string $className,
         string $methodName,
         array $aliases,
         array &$results,
         array &$visited,
-        int $depth
-    ): void {
-        if ($depth > self::MAX_CALL_DEPTH || $aliases === []) {
-            return;
+        int $depth,
+        array $guards = []
+    ): ?array {
+        if ($depth > self::MAX_CALL_DEPTH) {
+            return null;
         }
 
         try {
             $method = new ReflectionMethod($className, $methodName);
+            if (! $this->isApplicationMethod($method)) {
+                return null;
+            }
+            $classMethod = $this->parseMethod($method);
         } catch (Throwable) {
-            return;
+            return null;
         }
-
-        if (! $this->isApplicationMethod($method)) {
-            return;
-        }
-
-        $visitKey = $className . '::' . $methodName . ':'
-            . serialize($aliases);
-
-        if (isset($visited[$visitKey])) {
-            return;
-        }
-
-        $visited[$visitKey] = true;
-        $classMethod = $this->parseMethod($method);
 
         if ($classMethod === null) {
+            return null;
+        }
+
+        $visitKey = $className . '::' . $methodName . ':' . serialize([$aliases, $guards]);
+        if (array_key_exists($visitKey, $visited)) {
+            return $visited[$visitKey];
+        }
+        $visited[$visitKey] = null;
+
+        $parameters = $this->modelParameters($method);
+        $localModels = $depth === 0
+            ? $this->entryModelAliases($className, $methodName, $method)
+            : [];
+        $objectVariables = $this->objectParameters($method);
+        $objectProperties = $this->objectProperties($className);
+        $mutations = [];
+        $events = [];
+
+        foreach ((new NodeFinder())->findInstanceOf($classMethod->stmts ?? [], Node\Expr::class) as $node) {
+            // Capture aliases before evaluating the expression, then process its
+            // effect after its arguments/RHS have been evaluated.
+            $events[] = [$node->getStartFilePos(), 0, $node];
+            $events[] = [$node->getEndFilePos(), 1, $node];
+        }
+        usort($events, static fn (array $a, array $b): int =>
+            [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+
+        foreach ($events as [, $phase, $node]) {
+            if ($phase === 0) {
+                $node->setAttribute('modelAliases', $aliases);
+                continue;
+            }
+
+            if ($node instanceof Node\Expr\Assign) {
+                $target = $this->trackedExpression($node->var, $aliases);
+                if ($target !== null) {
+                    $mutations[] = ['root' => $target['root'], 'position' => $node->getEndFilePos()];
+                }
+                if ($node->var instanceof Node\Expr\Variable && is_string($node->var->name)) {
+                    $tracked = $this->trackedExpression($node->expr, $aliases);
+                    $variable = $node->var->name;
+                    unset($aliases[$variable]);
+                    if ($tracked !== null) {
+                        $aliases[$variable] = $tracked;
+                    } elseif (isset($localModels[$variable])
+                        && ($node->expr instanceof Node\Expr\StaticCall
+                            || $node->expr instanceof Node\Expr\MethodCall)) {
+                        $aliases[$variable] = $localModels[$variable];
+                    }
+                }
+                continue;
+            }
+
+            $context = $this->callGuards($node, $aliases, $guards, $mutations);
+
+            if ($node instanceof Node\Expr\PropertyFetch
+                && ($depth > 0 || $this->includeEntryMethodAccesses)) {
+                $this->recordAccess($node, $aliases, $context, $parameters, $depth, $results);
+            }
+
+            if (! ($node instanceof Node\Expr\MethodCall
+                || $node instanceof Node\Expr\StaticCall
+                || $node instanceof Node\Expr\FuncCall)) {
+                continue;
+            }
+
+            $targetClass = $node instanceof Node\Expr\MethodCall
+                ? $this->calledObjectClass($node->var, $className, $objectVariables, $objectProperties)
+                : null;
+            $calledAliases = [];
+            $effects = null;
+
+            if ($targetClass !== null && $node->name instanceof Node\Identifier) {
+                try {
+                    $reflection = new ReflectionMethod($targetClass, $node->name->toString());
+                    foreach ($reflection->getParameters() as $index => $parameter) {
+                        $argument = $node->args[$index]->value ?? null;
+                        foreach ($node->args as $arg) {
+                            if ($arg->name?->toString() === $parameter->getName()) {
+                                $argument = $arg->value;
+                                break;
+                            }
+                        }
+                        if ($argument instanceof Node\Expr) {
+                            $tracked = $this->trackedExpression($argument, $aliases);
+                            if ($tracked !== null) {
+                                $calledAliases[$parameter->getName()] = $tracked;
+                            }
+                        }
+                    }
+                    if ($calledAliases !== []) {
+                        $effects = $this->analyzeMethod(
+                            $targetClass, $node->name->toString(), $calledAliases,
+                            $results, $visited, $depth + 1, $context
+                        );
+                    }
+                } catch (Throwable) {
+                    // An unresolved call must not preserve assumptions about
+                    // the models passed to it.
+                }
+            }
+
+            if ($effects === null) {
+                $effects = [];
+                foreach ($node->args as $arg) {
+                    $tracked = $this->trackedExpression($arg->value, $aliases);
+                    if ($tracked !== null) {
+                        $effects[] = $tracked['root'];
+                    }
+                }
+                if ($node instanceof Node\Expr\MethodCall) {
+                    $receiver = $this->trackedExpression($node->var, $aliases);
+                    if ($receiver !== null) {
+                        $effects[] = $receiver['root'];
+                    }
+                }
+                if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name
+                    && in_array(strtolower($node->name->toString()), ['is_null', 'optional'], true)) {
+                    $effects = [];
+                }
+            }
+            foreach ($effects as $root) {
+                $mutations[] = ['root' => $root, 'position' => $node->getEndFilePos()];
+            }
+        }
+
+        return $visited[$visitKey] = array_values(array_unique(array_column($mutations, 'root')));
+    }
+
+    private function recordAccess(
+        Node\Expr\PropertyFetch $property,
+        array $aliases,
+        array $guards,
+        array $parameters,
+        int $depth,
+        array &$results
+    ): void {
+        $parent = $property->getAttribute('parent');
+        if ($parent instanceof Node\Expr\PropertyFetch
+            || $parent instanceof Node\Expr\NullsafePropertyFetch
+            || ($parent instanceof Node\Expr\Assign && $parent->var === $property)
+            || $this->isSafelyRead($property)) {
+            return;
+        }
+        $access = $this->propertyAccess($property, $aliases);
+        if ($access === null || $access['accesses'] === []
+            || ($depth === 0 && ! isset($parameters[$access['root']]))) {
             return;
         }
 
-        $finder = new NodeFinder();
-
-        foreach ($finder->findInstanceOf(
-            $classMethod->stmts ?? [],
-            Node\Expr\Assign::class
-        ) as $assignment) {
-            if (
-                ! $assignment->var instanceof Node\Expr\Variable
-                || ! is_string($assignment->var->name)
-            ) {
-                continue;
-            }
-
-            $access = $this->trackedExpression(
-                $assignment->expr,
-                $aliases
-            );
-
-            if ($access !== null) {
-                $aliases[$assignment->var->name] = $access;
+        $protected = 0;
+        foreach ($guards as $guard) {
+            if ($this->isAccessPrefix($guard, $access)) {
+                $protected = max($protected, count($guard['accesses']));
             }
         }
-
-        if ($depth > 0 || $this->includeEntryMethodAccesses) {
-            foreach ($finder->findInstanceOf(
-                $classMethod->stmts ?? [],
-                Node\Expr\PropertyFetch::class
-            ) as $propertyFetch) {
-                $parent = $propertyFetch->getAttribute('parent');
-
-                if (
-                    $parent instanceof Node\Expr\PropertyFetch
-                    || $parent instanceof Node\Expr\NullsafePropertyFetch
-                ) {
-                    continue;
-                }
-
-                if ($this->isProtectedAccess($propertyFetch, $aliases)) {
-                    continue;
-                }
-
-                $access = $this->propertyAccess($propertyFetch, $aliases);
-
-                if ($access === null || $access['accesses'] === []) {
-                    continue;
-                }
-                // Local models enter this analysis through service calls; direct
-                // controller lookups remain handled by the existing analyzers.
-                if ($depth === 0 && ! isset($this->modelParameters($method)[$access['root']])) {
-                    continue;
-                }
-
-                $access['resolvedAccesses'] = $this->accessChainResolver->resolve(
-                    $access['class'],
-                    $access['accesses']
-                );
-                $usage = $this->propertyUsage($propertyFetch);
-
-                if ($usage !== null) {
-                    $access['usage'] = $usage;
-                }
-                $results[serialize([
-                    $access['root'],
-                    $access['accesses'],
-                ])] = $access;
-            }
+        if ($protected > 0) {
+            $access['protectedAccessCount'] = $protected;
         }
 
-        $objectVariables = $this->objectParameters($method);
-        $objectProperties = $this->objectProperties($className);
-
-        foreach ($finder->findInstanceOf(
-            $classMethod->stmts ?? [],
-            Node\Expr\MethodCall::class
-        ) as $call) {
-            if (! $call->name instanceof Node\Identifier) {
-                continue;
-            }
-
-            $targetClass = $this->calledObjectClass(
-                $call->var,
-                $className,
-                $objectVariables,
-                $objectProperties
-            );
-
-            if ($targetClass === null) {
-                continue;
-            }
-
-            $targetMethod = $call->name->toString();
-
-            try {
-                $reflection = new ReflectionMethod(
-                    $targetClass,
-                    $targetMethod
-                );
-            } catch (Throwable) {
-                continue;
-            }
-
-            $calledAliases = [];
-
-            foreach ($reflection->getParameters() as $index => $parameter) {
-                $argument = $call->args[$index]->value ?? null;
-
-                if (! $argument instanceof Node\Expr) {
-                    continue;
-                }
-
-                $tracked = $this->trackedExpression($argument, $aliases);
-
-                if ($tracked !== null) {
-                    $calledAliases[$parameter->getName()] = $tracked;
-                }
-            }
-
-            if ($calledAliases === []) {
-                continue;
-            }
-
-            $this->analyzeMethod(
-                $targetClass,
-                $targetMethod,
-                $calledAliases,
-                $results,
-                $visited,
-                $depth + 1
-            );
+        $usage = $this->propertyUsage($property);
+        if ($this->isConditionValue($property)) {
+            $access['protectedAccessIndices'] = [count($access['accesses']) - 1];
+            $usage = null;
         }
+        if ($usage !== null) {
+            $access['usage'] = $usage;
+        }
+        $access['resolvedAccesses'] = $this->accessChainResolver->resolve(
+            $access['class'], $access['accesses']
+        );
+        // Retain both guarded and unguarded uses, independently of call order.
+        $results[serialize($access)] = $access;
+    }
+
+    private function isSafelyRead(Node\Expr\PropertyFetch $property): bool
+    {
+        $child = $property;
+        while (($parent = $child->getAttribute('parent')) instanceof Node\Expr || $parent instanceof Node\Arg) {
+            if ($parent instanceof Node\Expr\Isset_ || $parent instanceof Node\Expr\Empty_
+                || $this->isOptionalCall($parent)
+                || ($parent instanceof Node\Expr\BinaryOp\Coalesce && $child === $parent->left)) {
+                return true;
+            }
+            $child = $parent;
+        }
+        return false;
+    }
+
+    private function isConditionValue(Node\Expr\PropertyFetch $property): bool
+    {
+        $parent = $property->getAttribute('parent');
+        if ($parent instanceof Node\Stmt\If_ || $parent instanceof Node\Stmt\ElseIf_) {
+            return $parent->cond === $property;
+        }
+        if ($parent instanceof Node\Expr\Ternary) {
+            return $parent->cond === $property;
+        }
+        if ($parent instanceof Node\Expr\BooleanNot
+            || $parent instanceof Node\Expr\BinaryOp\BooleanAnd
+            || $parent instanceof Node\Expr\BinaryOp\BooleanOr
+            || $parent instanceof Node\Expr\BinaryOp\LogicalAnd
+            || $parent instanceof Node\Expr\BinaryOp\LogicalOr) {
+            return true;
+        }
+        if ($parent instanceof Node\Expr\BinaryOp\Identical || $parent instanceof Node\Expr\BinaryOp\NotIdentical) {
+            return $this->isNull($parent->left) || $this->isNull($parent->right);
+        }
+        if ($parent instanceof Node\Arg) {
+            $call = $parent->getAttribute('parent');
+            return $call instanceof Node\Expr\FuncCall && $call->name instanceof Node\Name
+                && strtolower($call->name->toString()) === 'is_null';
+        }
+        return false;
+    }
+
+    private function callGuards(Node\Expr $node, array $aliases, array $inherited, array $mutations): array
+    {
+        $conditions = [];
+        $child = $node;
+        while (($parent = $child->getAttribute('parent')) instanceof Node) {
+            if (($parent instanceof Node\Stmt\If_ || $parent instanceof Node\Stmt\ElseIf_)
+                && in_array($child, $parent->stmts, true)) {
+                $conditions[] = [$parent->cond, true];
+            }
+            if ($parent instanceof Node\Stmt\Else_ || $parent instanceof Node\Stmt\ElseIf_) {
+                $owner = $parent->getAttribute('parent');
+                if ($owner instanceof Node\Stmt\If_) {
+                    $conditions[] = [$owner->cond, false];
+                    foreach ($owner->elseifs as $previous) {
+                        if ($previous === $parent) {
+                            break;
+                        }
+                        $conditions[] = [$previous->cond, false];
+                    }
+                }
+            }
+            if ($parent instanceof Node\Expr\Ternary && $child !== $parent->cond) {
+                $conditions[] = [$parent->cond, $child === $parent->if];
+            }
+            if (($parent instanceof Node\Expr\BinaryOp\BooleanAnd || $parent instanceof Node\Expr\BinaryOp\LogicalAnd)
+                && $child === $parent->right) {
+                $conditions[] = [$parent->left, true];
+            }
+            if (($parent instanceof Node\Expr\BinaryOp\BooleanOr || $parent instanceof Node\Expr\BinaryOp\LogicalOr)
+                && $child === $parent->right) {
+                $conditions[] = [$parent->left, false];
+            }
+            $child = $parent;
+        }
+        $candidates = array_map(static fn (array $guard): array => [$guard, -1], $inherited);
+        foreach ($conditions as [$condition, $truthy]) {
+            foreach ((new ConditionGuardAnalyzer())->analyze($condition, $truthy) as $guard) {
+                $resolved = $this->trackedExpression($guard, $guard->getAttribute('modelAliases', $aliases));
+                if ($resolved !== null) {
+                    $candidates[] = [$resolved, $condition->getEndFilePos()];
+                }
+            }
+        }
+        $result = [];
+        foreach ($candidates as [$guard, $position]) {
+            foreach ($mutations as $mutation) {
+                if ($mutation['root'] === $guard['root'] && $mutation['position'] > $position) {
+                    continue 2;
+                }
+            }
+            $result[serialize($guard)] = $guard;
+        }
+        return array_values($result);
     }
 
     private function entryModelAliases(string $className, string $methodName, ReflectionMethod $method): array
@@ -469,229 +601,11 @@ class WriteControllerAccessAnalyzer
         return null;
     }
 
-    private function isProtectedAccess(
-        Node\Expr\PropertyFetch $property,
-        array $aliases
-    ): bool {
-        $current = $property;
-
-        while (($parent = $current->getAttribute('parent')) instanceof Node) {
-            if (
-                $parent instanceof Node\Expr\BinaryOp\Coalesce
-                || $parent instanceof Node\Expr\Isset_
-                || $parent instanceof Node\Expr\Empty_
-                || $this->isOptionalCall($parent)
-            ) {
-                return true;
-            }
-
-            if ($parent instanceof Node\Stmt\If_) {
-                return $this->isProtectedByIf(
-                    $property,
-                    $current,
-                    $parent,
-                    $aliases
-                );
-            }
-
-            if ($parent instanceof Node\Expr\Ternary) {
-                return $this->isProtectedByTernary(
-                    $property,
-                    $current,
-                    $parent,
-                    $aliases
-                );
-            }
-
-            $current = $parent;
-        }
-
-        return false;
-    }
-
     private function isOptionalCall(Node $node): bool
     {
         return $node instanceof Node\Expr\FuncCall
             && $node->name instanceof Node\Name
             && $node->name->toString() === 'optional';
-    }
-
-    private function isProtectedByIf(
-        Node\Expr\PropertyFetch $property,
-        Node $branch,
-        Node\Stmt\If_ $if,
-        array $aliases
-    ): bool {
-        $access = $this->propertyAccess($property, $aliases);
-
-        if ($access === null) {
-            return false;
-        }
-
-        if ($branch === $if->cond) {
-            return $this->conditionGuardsAccess(
-                $if->cond,
-                $access,
-                $aliases,
-                true
-            ) || $this->conditionGuardsAccess(
-                $if->cond,
-                $access,
-                $aliases,
-                false
-            );
-        }
-
-        if (in_array($branch, $if->stmts, true)) {
-            return $this->conditionGuardsAccess(
-                $if->cond,
-                $access,
-                $aliases,
-                true
-            );
-        }
-
-        if ($branch === $if->else) {
-            return $this->conditionGuardsAccess(
-                $if->cond,
-                $access,
-                $aliases,
-                false
-            );
-        }
-
-        return false;
-    }
-
-    private function isProtectedByTernary(
-        Node\Expr\PropertyFetch $property,
-        Node $branch,
-        Node\Expr\Ternary $ternary,
-        array $aliases
-    ): bool {
-        $access = $this->propertyAccess($property, $aliases);
-
-        if ($access === null) {
-            return false;
-        }
-
-        if ($branch === $ternary->cond) {
-            return $this->conditionGuardsAccess(
-                $ternary->cond,
-                $access,
-                $aliases,
-                true
-            ) || $this->conditionGuardsAccess(
-                $ternary->cond,
-                $access,
-                $aliases,
-                false
-            );
-        }
-
-        if ($branch === $ternary->if) {
-            return $this->conditionGuardsAccess(
-                $ternary->cond,
-                $access,
-                $aliases,
-                true
-            );
-        }
-
-        if ($branch === $ternary->else) {
-            return $this->conditionGuardsAccess(
-                $ternary->cond,
-                $access,
-                $aliases,
-                false
-            );
-        }
-
-        return false;
-    }
-
-    private function conditionGuardsAccess(
-        Node\Expr $condition,
-        array $access,
-        array $aliases,
-        bool $whenTrue
-    ): bool {
-        if ($condition instanceof Node\Expr\BooleanNot) {
-            return $this->conditionGuardsAccess(
-                $condition->expr,
-                $access,
-                $aliases,
-                ! $whenTrue
-            );
-        }
-
-        if (
-            $condition instanceof Node\Expr\BinaryOp\BooleanAnd
-            && $whenTrue
-        ) {
-            return $this->conditionGuardsAccess(
-                $condition->left,
-                $access,
-                $aliases,
-                true
-            ) || $this->conditionGuardsAccess(
-                $condition->right,
-                $access,
-                $aliases,
-                true
-            );
-        }
-
-        if ($condition instanceof Node\Expr\Isset_ && $whenTrue) {
-            foreach ($condition->vars as $variable) {
-                if ($variable instanceof Node\Expr\PropertyFetch) {
-                    $guard = $this->propertyAccess($variable, $aliases);
-
-                    if ($guard !== null && $this->isAccessPrefix($guard, $access)) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        if ($condition instanceof Node\Expr\PropertyFetch) {
-            $guard = $this->propertyAccess($condition, $aliases);
-
-            return $whenTrue
-                && $guard !== null
-                && $this->isAccessPrefix($guard, $access);
-        }
-
-        if (
-            $condition instanceof Node\Expr\BinaryOp\NotIdentical
-            || $condition instanceof Node\Expr\BinaryOp\NotEqual
-            || $condition instanceof Node\Expr\BinaryOp\Identical
-            || $condition instanceof Node\Expr\BinaryOp\Equal
-        ) {
-            $leftIsNull = $this->isNull($condition->left);
-            $rightIsNull = $this->isNull($condition->right);
-
-            if ($leftIsNull === $rightIsNull) {
-                return false;
-            }
-
-            $candidate = $leftIsNull
-                ? $condition->right
-                : $condition->left;
-            $guard = $candidate instanceof Node\Expr\PropertyFetch
-                ? $this->propertyAccess($candidate, $aliases)
-                : null;
-            $nonNullWhenTrue = $condition instanceof Node\Expr\BinaryOp\NotIdentical
-                || $condition instanceof Node\Expr\BinaryOp\NotEqual;
-
-            return $guard !== null
-                && $whenTrue === $nonNullWhenTrue
-                && $this->isAccessPrefix($guard, $access);
-        }
-
-        return false;
     }
 
     private function isNull(Node\Expr $expression): bool
