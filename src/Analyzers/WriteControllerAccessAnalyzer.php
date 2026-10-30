@@ -20,6 +20,10 @@ class WriteControllerAccessAnalyzer
 {
     private const MAX_CALL_DEPTH = 8;
 
+    private array $returnCache = [];
+
+    private array $propertyStateCache = [];
+
     public function __construct(
         private EloquentAccessChainResolver $accessChainResolver,
         private bool $includeEntryMethodAccesses = true
@@ -28,6 +32,9 @@ class WriteControllerAccessAnalyzer
 
     public function analyze(string $controllerClass, string $methodName): array
     {
+        $this->returnCache = [];
+        $this->propertyStateCache = [];
+
         try {
             $method = new ReflectionMethod($controllerClass, $methodName);
         } catch (Throwable) {
@@ -36,6 +43,9 @@ class WriteControllerAccessAnalyzer
 
         $results = [];
         $visited = [];
+        $propertyAliases = [];
+        $objectStates = [];
+        $returnedAliases = [];
 
         $this->analyzeMethod(
             $controllerClass,
@@ -43,7 +53,11 @@ class WriteControllerAccessAnalyzer
             $this->modelParameters($method),
             $results,
             $visited,
-            0
+            0,
+            [],
+            $propertyAliases,
+            $objectStates,
+            $returnedAliases
         );
 
         return array_values($results);
@@ -61,7 +75,10 @@ class WriteControllerAccessAnalyzer
         array &$results,
         array &$visited,
         int $depth,
-        array $guards = []
+        array $guards = [],
+        array &$propertyAliases = [],
+        array &$objectStates = [],
+        array &$returnedAliases = []
     ): ?array {
         if ($depth > self::MAX_CALL_DEPTH) {
             return null;
@@ -81,8 +98,15 @@ class WriteControllerAccessAnalyzer
             return null;
         }
 
-        $visitKey = $className . '::' . $methodName . ':' . serialize([$aliases, $guards]);
+        $visitKey = $className . '::' . $methodName . ':'
+            . serialize([$aliases, $guards, $propertyAliases]);
         if (array_key_exists($visitKey, $visited)) {
+            $returnedAliases = $this->returnCache[$visitKey] ?? [];
+
+            if (isset($this->propertyStateCache[$visitKey])) {
+                $propertyAliases = $this->propertyStateCache[$visitKey];
+            }
+
             return $visited[$visitKey];
         }
         $visited[$visitKey] = null;
@@ -99,25 +123,58 @@ class WriteControllerAccessAnalyzer
         foreach ((new NodeFinder())->findInstanceOf($classMethod->stmts ?? [], Node\Expr::class) as $node) {
             // Capture aliases before evaluating the expression, then process its
             // effect after its arguments/RHS have been evaluated.
-            $events[] = [$node->getStartFilePos(), 0, $node];
-            $events[] = [$node->getEndFilePos(), 1, $node];
+            $events[] = [
+                $node->getStartFilePos(),
+                0,
+                $node->getStartFilePos(),
+                $node,
+            ];
+            $events[] = [
+                $node->getEndFilePos(),
+                1,
+                -$node->getStartFilePos(),
+                $node,
+            ];
         }
         usort($events, static fn (array $a, array $b): int =>
-            [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+            [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]]);
 
-        foreach ($events as [, $phase, $node]) {
+        foreach ($events as [, $phase, , $node]) {
+            $effectiveAliases = $this->withPropertyAliases(
+                $aliases,
+                $propertyAliases
+            );
+
             if ($phase === 0) {
-                $node->setAttribute('modelAliases', $aliases);
+                $node->setAttribute('modelAliases', $effectiveAliases);
                 continue;
             }
 
             if ($node instanceof Node\Expr\Assign) {
-                $target = $this->trackedExpression($node->var, $aliases);
+                $storedProperty = $this->storedPropertyName($node->var);
+                $tracked = $this->trackedExpression(
+                    $node->expr,
+                    $effectiveAliases
+                );
+
+                if ($storedProperty !== null) {
+                    unset($propertyAliases[$storedProperty]);
+
+                    if ($tracked !== null) {
+                        $propertyAliases[$storedProperty] = $tracked;
+                    }
+
+                    continue;
+                }
+
+                $target = $this->trackedExpression(
+                    $node->var,
+                    $effectiveAliases
+                );
                 if ($target !== null) {
                     $mutations[] = ['root' => $target['root'], 'position' => $node->getEndFilePos()];
                 }
                 if ($node->var instanceof Node\Expr\Variable && is_string($node->var->name)) {
-                    $tracked = $this->trackedExpression($node->expr, $aliases);
                     $variable = $node->var->name;
                     unset($aliases[$variable]);
                     if ($tracked !== null) {
@@ -131,11 +188,27 @@ class WriteControllerAccessAnalyzer
                 continue;
             }
 
-            $context = $this->callGuards($node, $aliases, $guards, $mutations);
+            $context = $this->callGuards(
+                $node,
+                $effectiveAliases,
+                $guards,
+                $mutations
+            );
 
             if ($node instanceof Node\Expr\PropertyFetch
-                && ($depth > 0 || $this->includeEntryMethodAccesses)) {
-                $this->recordAccess($node, $aliases, $context, $parameters, $depth, $results);
+                && (
+                    $depth > 0
+                    || $this->includeEntryMethodAccesses
+                    || $this->hasTrackedReturnReceiver($node)
+                )) {
+                $this->recordAccess(
+                    $node,
+                    $effectiveAliases,
+                    $context,
+                    $parameters,
+                    $depth,
+                    $results
+                );
             }
 
             if (! ($node instanceof Node\Expr\MethodCall
@@ -149,6 +222,7 @@ class WriteControllerAccessAnalyzer
                 : null;
             $calledAliases = [];
             $effects = null;
+            $callReturns = [];
 
             if ($targetClass !== null && $node->name instanceof Node\Identifier) {
                 try {
@@ -162,17 +236,35 @@ class WriteControllerAccessAnalyzer
                             }
                         }
                         if ($argument instanceof Node\Expr) {
-                            $tracked = $this->trackedExpression($argument, $aliases);
+                            $tracked = $this->trackedExpression(
+                                $argument,
+                                $effectiveAliases
+                            );
                             if ($tracked !== null) {
                                 $calledAliases[$parameter->getName()] = $tracked;
                             }
                         }
                     }
-                    if ($calledAliases !== []) {
+                    $calleeState =& $this->calleePropertyState(
+                        $node,
+                        $targetClass,
+                        $propertyAliases,
+                        $objectStates
+                    );
+
+                    if ($calledAliases !== [] || $calleeState !== []) {
                         $effects = $this->analyzeMethod(
                             $targetClass, $node->name->toString(), $calledAliases,
-                            $results, $visited, $depth + 1, $context
+                            $results, $visited, $depth + 1, $context,
+                            $calleeState, $objectStates, $callReturns
                         );
+
+                        if ($callReturns !== []) {
+                            $node->setAttribute(
+                                'trackedReturn',
+                                $callReturns[0]
+                            );
+                        }
                     }
                 } catch (Throwable) {
                     // An unresolved call must not preserve assumptions about
@@ -183,13 +275,19 @@ class WriteControllerAccessAnalyzer
             if ($effects === null) {
                 $effects = [];
                 foreach ($node->args as $arg) {
-                    $tracked = $this->trackedExpression($arg->value, $aliases);
+                    $tracked = $this->trackedExpression(
+                        $arg->value,
+                        $effectiveAliases
+                    );
                     if ($tracked !== null) {
                         $effects[] = $tracked['root'];
                     }
                 }
                 if ($node instanceof Node\Expr\MethodCall) {
-                    $receiver = $this->trackedExpression($node->var, $aliases);
+                    $receiver = $this->trackedExpression(
+                        $node->var,
+                        $effectiveAliases
+                    );
                     if ($receiver !== null) {
                         $effects[] = $receiver['root'];
                     }
@@ -204,7 +302,108 @@ class WriteControllerAccessAnalyzer
             }
         }
 
+        foreach ((new NodeFinder())->findInstanceOf(
+            $classMethod->stmts ?? [],
+            Node\Stmt\Return_::class
+        ) as $return) {
+            if (! $return->expr instanceof Node\Expr) {
+                continue;
+            }
+
+            $returnAliases = $return->expr->getAttribute(
+                'modelAliases',
+                $this->withPropertyAliases($aliases, $propertyAliases)
+            );
+            $returned = $this->trackedExpression(
+                $return->expr,
+                $returnAliases
+            );
+
+            if ($returned !== null) {
+                $returnedAliases[serialize($returned)] = $returned;
+            }
+        }
+
+        $returnedAliases = array_values($returnedAliases);
+
+        $this->returnCache[$visitKey] = $returnedAliases;
+        $this->propertyStateCache[$visitKey] = $propertyAliases;
+
         return $visited[$visitKey] = array_values(array_unique(array_column($mutations, 'root')));
+    }
+
+    private function withPropertyAliases(
+        array $aliases,
+        array $propertyAliases
+    ): array {
+        foreach ($propertyAliases as $property => $alias) {
+            $aliases['this->' . $property] = $alias;
+        }
+
+        return $aliases;
+    }
+
+    private function hasTrackedReturnReceiver(
+        Node\Expr\PropertyFetch $property
+    ): bool {
+        $current = $property->var;
+
+        while ($current instanceof Node\Expr\PropertyFetch) {
+            $current = $current->var;
+        }
+
+        return is_array($current->getAttribute('trackedReturn'));
+    }
+
+    private function storedPropertyName(Node\Expr $expression): ?string
+    {
+        return $expression instanceof Node\Expr\PropertyFetch
+            && $expression->var instanceof Node\Expr\Variable
+            && $expression->var->name === 'this'
+            && $expression->name instanceof Node\Identifier
+                ? $expression->name->toString()
+                : null;
+    }
+
+    private function &calleePropertyState(
+        Node\Expr\MethodCall $call,
+        string $targetClass,
+        array &$propertyAliases,
+        array &$objectStates
+    ): array {
+        if (
+            $call->var instanceof Node\Expr\Variable
+            && $call->var->name === 'this'
+        ) {
+            return $propertyAliases;
+        }
+
+        $key = $targetClass . ':' . $this->receiverIdentity($call->var);
+        $objectStates[$key] ??= [];
+
+        return $objectStates[$key];
+    }
+
+    private function receiverIdentity(Node\Expr $receiver): string
+    {
+        if (
+            $receiver instanceof Node\Expr\Variable
+            && is_string($receiver->name)
+        ) {
+            return '$' . $receiver->name;
+        }
+
+        if (
+            $receiver instanceof Node\Expr\PropertyFetch
+            && $receiver->var instanceof Node\Expr\Variable
+            && is_string($receiver->var->name)
+            && $receiver->name instanceof Node\Identifier
+        ) {
+            return '$' . $receiver->var->name
+                . '->' . $receiver->name->toString();
+        }
+
+        return 'expression@' . $receiver->getStartFilePos();
     }
 
     private function recordAccess(
@@ -504,6 +703,12 @@ class WriteControllerAccessAnalyzer
         Node\Expr $expression,
         array $aliases
     ): ?array {
+        $returned = $expression->getAttribute('trackedReturn');
+
+        if (is_array($returned)) {
+            return $returned;
+        }
+
         if (
             $expression instanceof Node\Expr\Variable
             && is_string($expression->name)
@@ -533,15 +738,46 @@ class WriteControllerAccessAnalyzer
             $current = $current->var;
         }
 
-        if (
-            ! $current instanceof Node\Expr\Variable
-            || ! is_string($current->name)
-            || ! isset($aliases[$current->name])
-        ) {
+        $returned = $current->getAttribute('trackedReturn');
+
+        if (is_array($returned)) {
+            $alias = $returned;
+
+            return [
+                'root' => $alias['root'],
+                'class' => $alias['class'],
+                'type' => 'object',
+                'accesses' => [
+                    ...$alias['accesses'],
+                    ...$properties,
+                ],
+                ...(isset($alias['input'])
+                    ? ['input' => $alias['input']]
+                    : []),
+            ];
+        }
+
+        if (! $current instanceof Node\Expr\Variable
+            || ! is_string($current->name)) {
             return null;
         }
 
-        $alias = $aliases[$current->name];
+        $aliasKey = $current->name;
+
+        if (
+            $aliasKey === 'this'
+            && isset($properties[0]['name'])
+            && isset($aliases['this->' . $properties[0]['name']])
+        ) {
+            $aliasKey = 'this->' . $properties[0]['name'];
+            array_shift($properties);
+        }
+
+        if (! isset($aliases[$aliasKey])) {
+            return null;
+        }
+
+        $alias = $aliases[$aliasKey];
 
         $access = [
             'root' => $alias['root'],
