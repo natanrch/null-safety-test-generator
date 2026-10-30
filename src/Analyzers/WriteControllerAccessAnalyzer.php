@@ -40,7 +40,7 @@ class WriteControllerAccessAnalyzer
         $this->analyzeMethod(
             $controllerClass,
             $methodName,
-            $this->modelParameters($method),
+            $this->entryModelAliases($controllerClass, $methodName, $method),
             $results,
             $visited,
             0
@@ -131,6 +131,11 @@ class WriteControllerAccessAnalyzer
                 if ($access === null || $access['accesses'] === []) {
                     continue;
                 }
+                // Local models enter this analysis through service calls; direct
+                // controller lookups remain handled by the existing analyzers.
+                if ($depth === 0 && ! isset($this->modelParameters($method)[$access['root']])) {
+                    continue;
+                }
 
                 $access['resolvedAccesses'] = $this->accessChainResolver->resolve(
                     $access['class'],
@@ -210,6 +215,24 @@ class WriteControllerAccessAnalyzer
                 $depth + 1
             );
         }
+    }
+
+    private function entryModelAliases(string $className, string $methodName, ReflectionMethod $method): array
+    {
+        $aliases = $this->modelParameters($method);
+        foreach ((new ControllerMethodAnalyzer())->getObjectClasses($className, $methodName) as $variable => $metadata) {
+            $class = $metadata['class'] ?? null;
+            if (($metadata['type'] ?? null) !== 'object' || ! is_string($class)
+                || ! is_subclass_of($class, Model::class)) {
+                continue;
+            }
+            $aliases[$variable] = [
+                ...$metadata,
+                'root' => $variable,
+                'accesses' => [],
+            ];
+        }
+        return $aliases;
     }
 
     private function modelParameters(ReflectionMethod $method): array
@@ -388,12 +411,16 @@ class WriteControllerAccessAnalyzer
 
         $alias = $aliases[$current->name];
 
-        return [
+        $access = [
             'root' => $alias['root'],
             'class' => $alias['class'],
             'type' => 'object',
             'accesses' => [...$alias['accesses'], ...$properties],
         ];
+        if (isset($alias['input'])) {
+            $access['input'] = $alias['input'];
+        }
+        return $access;
     }
 
     private function isApplicationMethod(ReflectionMethod $method): bool

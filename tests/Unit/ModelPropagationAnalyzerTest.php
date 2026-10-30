@@ -12,6 +12,41 @@ use PHPUnit\Framework\TestCase;
 
 class ModelPropagationAnalyzerTest extends TestCase
 {
+    public function test_it_propagates_a_locally_queried_model_through_nested_service_methods(): void
+    {
+        $analyzer = new ModelPropagationAnalyzer(new EloquentAccessChainResolver(new EloquentRelationshipResolver()));
+        $accesses = $analyzer->analyze(GetServiceController::class, 'localFirst');
+        $this->assertNotEmpty($accesses);
+        $this->assertSame('post', $accesses[0]['root']);
+        $this->assertSame(['author', 'profile', 'name'], array_column($accesses[0]['accesses'], 'name'));
+    }
+
+    public function test_it_preserves_request_origin_when_propagating_a_local_model(): void
+    {
+        $analyzer = new ModelPropagationAnalyzer(new EloquentAccessChainResolver(new EloquentRelationshipResolver()));
+        $accesses = $analyzer->analyze(GetServiceController::class, 'localRequest');
+        $this->assertNotEmpty($accesses);
+        $this->assertSame('post_id', $accesses[0]['input']['parameter'] ?? null);
+    }
+
+    public function test_it_does_not_treat_a_collection_as_a_single_model_or_an_unused_model_as_an_access(): void
+    {
+        $analyzer = new ModelPropagationAnalyzer(new EloquentAccessChainResolver(new EloquentRelationshipResolver()));
+        $this->assertSame([], $analyzer->analyze(GetServiceController::class, 'localCollection'));
+        $this->assertSame([], $analyzer->analyze(GetServiceController::class, 'unusedLocal'));
+    }
+
+    public function test_it_tracks_filtered_first_queries_and_find_or_fail(): void
+    {
+        $analyzer = new ModelPropagationAnalyzer(new EloquentAccessChainResolver(new EloquentRelationshipResolver()));
+        foreach (['localFiltered', 'localFindOrFail'] as $method) {
+            $accesses = $analyzer->analyze(GetServiceController::class, $method);
+            $this->assertNotEmpty($accesses);
+            $this->assertSame('post', $accesses[0]['root']);
+            $this->assertSame(['author', 'profile', 'name'], array_column($accesses[0]['accesses'], 'name'));
+        }
+    }
+
     public function test_it_follows_a_controller_model_through_a_get_helper(): void
     {
         $result = (new ModelPropagationAnalyzer(

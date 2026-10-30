@@ -44,9 +44,17 @@ class WriteFeatureTestGenerator
             $setup['code'][] = $scenarioSetup['code'];
         }
 
-        $dependencySetup = $this->generateDependencySetup(
-            $analysis['dependencies'] ?? []
-        );
+        $dependencies = $analysis['dependencies'] ?? [];
+        $payload = $analysis['payload'] ?? [];
+        $input = $scenario['input'] ?? [];
+        $modelInput = ($input['source'] ?? null) === 'request'
+            && ($input['valueFrom'] ?? null) === 'model_key'
+            && is_string($input['parameter'] ?? null)
+            && ($scenario['strategy'] ?? null) !== 'missing_request_parameter';
+        if ($modelInput) {
+            unset($dependencies[$input['parameter']]);
+        }
+        $dependencySetup = $this->generateDependencySetup($dependencies);
 
         if (($dependencySetup['generated'] ?? false) !== true) {
             return $dependencySetup;
@@ -68,10 +76,14 @@ class WriteFeatureTestGenerator
             4
         );
         $routeCall = $this->generateRouteCall($route);
-        $payload = $this->exportPayload(
-            $analysis['payload'] ?? [],
-            $analysis['dependencies'] ?? []
-        );
+        if ($modelInput) {
+            $payload[$input['parameter']] = null;
+            $dependencies[$input['parameter']] = [
+                'variable' => $scenario['root'],
+                'column' => 'getKey()',
+            ];
+        }
+        $payload = $this->exportPayload($payload, $dependencies);
 
         return [
             'generated' => true,
@@ -96,7 +108,7 @@ class WriteFeatureTestGenerator
         $results = [$this->generate($analysis, $route)];
 
         foreach ($analysis['scenarios'] ?? [] as $scenario) {
-            if (is_array($scenario)) {
+            if (is_array($scenario) && ($scenario['strategy'] ?? null) !== 'missing_request_parameter') {
                 $results[] = $this->generate($analysis, $route, $scenario);
             }
         }

@@ -23,6 +23,18 @@ use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class NullSafetyTestGenerationServiceTest extends TestCase
 {
+    public function test_it_generates_get_scenarios_for_a_local_model_passed_to_a_service(): void
+    {
+        $result = $this->app->make(NullSafetyTestGenerationService::class)->generateMethods(
+            GetServiceController::class, 'localRequest',
+            ['name' => 'local.get', 'method' => 'GET', 'parameters' => []]
+        );
+        $this->assertTrue($result['generated']);
+        $code = implode("\n", $result['testMethods']);
+        $this->assertStringContainsString('when_post_author_profile_is_null', $code);
+        $this->assertStringContainsString("'post_id' => \$post->getKey()", $code);
+    }
+
     public function test_it_skips_an_empty_get_controller_method(): void
     {
         $result = $this->app

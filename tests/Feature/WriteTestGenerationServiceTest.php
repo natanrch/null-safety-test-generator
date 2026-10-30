@@ -11,6 +11,28 @@ use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class WriteTestGenerationServiceTest extends TestCase
 {
+    public function test_it_generates_write_scenarios_for_a_local_model_passed_to_a_service(): void
+    {
+        $result = $this->app->make(WriteTestGenerationService::class)->generateMethods(
+            \Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\GetServiceController::class,
+            'localFirst',
+            ['name' => 'local.post', 'method' => 'POST', 'parameters' => []]
+        );
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString('when_post_author_profile_is_null', implode("\n", $result['testMethods']));
+    }
+
+    public function test_a_propagated_request_model_is_sent_in_the_write_payload(): void
+    {
+        $result = $this->app->make(WriteTestGenerationService::class)->generateMethods(
+            \Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\GetServiceController::class,
+            'localRequest',
+            ['name' => 'local.post', 'method' => 'POST', 'parameters' => []]
+        );
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString("'post_id' => \$post->getKey()", implode("\n", $result['testMethods']));
+    }
+
     public function test_it_skips_an_empty_write_controller_method(): void
     {
         $result = $this->app
