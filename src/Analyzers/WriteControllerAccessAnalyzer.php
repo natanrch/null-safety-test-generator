@@ -112,6 +112,15 @@ class WriteControllerAccessAnalyzer
         $visited[$visitKey] = null;
 
         $parameters = $this->modelParameters($method);
+
+        foreach ($method->getParameters() as $parameter) {
+            if ($parameter->isPromoted()
+                && isset($aliases[$parameter->getName()])) {
+                $propertyAliases[$parameter->getName()]
+                    = $aliases[$parameter->getName()];
+            }
+        }
+
         $localModels = $depth === 0
             ? $this->entryModelAliases($className, $methodName, $method)
             : [];
@@ -147,6 +156,42 @@ class WriteControllerAccessAnalyzer
 
             if ($phase === 0) {
                 $node->setAttribute('modelAliases', $effectiveAliases);
+
+                if ($node instanceof Node\Expr\Closure
+                    || $node instanceof Node\Expr\ArrowFunction) {
+                    $callbackAliases = $this->callbackAliases(
+                        $node,
+                        $effectiveAliases
+                    );
+                    $previous = [];
+
+                    foreach ($callbackAliases as $variable => $alias) {
+                        $previous[$variable] = $aliases[$variable] ?? null;
+                        $aliases[$variable] = $alias;
+                    }
+
+                    $node->setAttribute(
+                        'previousCallbackAliases',
+                        $previous
+                    );
+                }
+
+                continue;
+            }
+
+            if ($node instanceof Node\Expr\Closure
+                || $node instanceof Node\Expr\ArrowFunction) {
+                foreach ($node->getAttribute(
+                    'previousCallbackAliases',
+                    []
+                ) as $variable => $previous) {
+                    if ($previous === null) {
+                        unset($aliases[$variable]);
+                    } else {
+                        $aliases[$variable] = $previous;
+                    }
+                }
+
                 continue;
             }
 
@@ -177,6 +222,16 @@ class WriteControllerAccessAnalyzer
                 if ($node->var instanceof Node\Expr\Variable && is_string($node->var->name)) {
                     $variable = $node->var->name;
                     unset($aliases[$variable]);
+                    unset($objectVariables[$variable]);
+
+                    if ($node->expr instanceof Node\Expr\New_) {
+                        $newClass = $this->newClassName($node->expr);
+
+                        if ($newClass !== null) {
+                            $objectVariables[$variable] = $newClass;
+                        }
+                    }
+
                     if ($tracked !== null) {
                         $aliases[$variable] = $tracked;
                     } elseif (isset($localModels[$variable])
@@ -213,20 +268,41 @@ class WriteControllerAccessAnalyzer
 
             if (! ($node instanceof Node\Expr\MethodCall
                 || $node instanceof Node\Expr\StaticCall
-                || $node instanceof Node\Expr\FuncCall)) {
+                || $node instanceof Node\Expr\FuncCall
+                || $node instanceof Node\Expr\New_)) {
                 continue;
             }
 
-            $targetClass = $node instanceof Node\Expr\MethodCall
-                ? $this->calledObjectClass($node->var, $className, $objectVariables, $objectProperties)
-                : null;
+            $targetClass = match (true) {
+                $node instanceof Node\Expr\MethodCall =>
+                    $this->calledObjectClass(
+                        $node->var,
+                        $className,
+                        $objectVariables,
+                        $objectProperties
+                    ),
+                $node instanceof Node\Expr\StaticCall =>
+                    $this->staticClassName($node, $className),
+                $node instanceof Node\Expr\New_ =>
+                    $this->newClassName($node),
+                default => null,
+            };
             $calledAliases = [];
             $effects = null;
             $callReturns = [];
 
-            if ($targetClass !== null && $node->name instanceof Node\Identifier) {
+            $targetMethod = $node instanceof Node\Expr\New_
+                ? '__construct'
+                : ($node->name instanceof Node\Identifier
+                    ? $node->name->toString()
+                    : null);
+
+            if ($targetClass !== null && $targetMethod !== null) {
                 try {
-                    $reflection = new ReflectionMethod($targetClass, $node->name->toString());
+                    $reflection = new ReflectionMethod(
+                        $targetClass,
+                        $targetMethod
+                    );
                     foreach ($reflection->getParameters() as $index => $parameter) {
                         $argument = $node->args[$index]->value ?? null;
                         foreach ($node->args as $arg) {
@@ -254,7 +330,7 @@ class WriteControllerAccessAnalyzer
 
                     if ($calledAliases !== [] || $calleeState !== []) {
                         $effects = $this->analyzeMethod(
-                            $targetClass, $node->name->toString(), $calledAliases,
+                            $targetClass, $targetMethod, $calledAliases,
                             $results, $visited, $depth + 1, $context,
                             $calleeState, $objectStates, $callReturns
                         );
@@ -269,6 +345,18 @@ class WriteControllerAccessAnalyzer
                 } catch (Throwable) {
                     // An unresolved call must not preserve assumptions about
                     // the models passed to it.
+                }
+            }
+
+            if ($node instanceof Node\Expr\MethodCall
+                && $this->isCollectionPassthroughCall($node)) {
+                $collection = $this->trackedExpression(
+                    $node->var,
+                    $effectiveAliases
+                );
+
+                if ($collection !== null) {
+                    $node->setAttribute('trackedReturn', $collection);
                 }
             }
 
@@ -366,19 +454,26 @@ class WriteControllerAccessAnalyzer
     }
 
     private function &calleePropertyState(
-        Node\Expr\MethodCall $call,
+        Node\Expr\MethodCall|Node\Expr\StaticCall|Node\Expr\New_ $call,
         string $targetClass,
         array &$propertyAliases,
         array &$objectStates
     ): array {
-        if (
-            $call->var instanceof Node\Expr\Variable
+        if ($call instanceof Node\Expr\MethodCall
+            && $call->var instanceof Node\Expr\Variable
             && $call->var->name === 'this'
         ) {
             return $propertyAliases;
         }
 
-        $key = $targetClass . ':' . $this->receiverIdentity($call->var);
+        $key = match (true) {
+            $call instanceof Node\Expr\StaticCall =>
+                $targetClass . ':static',
+            $call instanceof Node\Expr\New_ =>
+                $targetClass . ':' . $this->receiverIdentity($call),
+            default => $targetClass . ':'
+                . $this->receiverIdentity($call->var),
+        };
         $objectStates[$key] ??= [];
 
         return $objectStates[$key];
@@ -401,6 +496,16 @@ class WriteControllerAccessAnalyzer
         ) {
             return '$' . $receiver->var->name
                 . '->' . $receiver->name->toString();
+        }
+        if ($receiver instanceof Node\Expr\New_) {
+            $parent = $receiver->getAttribute('parent');
+
+            if ($parent instanceof Node\Expr\Assign
+                && $parent->expr === $receiver
+                && $parent->var instanceof Node\Expr\Variable
+                && is_string($parent->var->name)) {
+                return '$' . $parent->var->name;
+            }
         }
 
         return 'expression@' . $receiver->getStartFilePos();
@@ -687,6 +792,10 @@ class WriteControllerAccessAnalyzer
                 : null;
         }
 
+        if ($receiver instanceof Node\Expr\New_) {
+            return $this->newClassName($receiver);
+        }
+
         if (
             $receiver instanceof Node\Expr\PropertyFetch
             && $receiver->var instanceof Node\Expr\Variable
@@ -697,6 +806,91 @@ class WriteControllerAccessAnalyzer
         }
 
         return null;
+    }
+
+    private function newClassName(Node\Expr\New_ $new): ?string
+    {
+        return $new->class instanceof Node\Name
+            ? $new->class->toString()
+            : null;
+    }
+
+    private function staticClassName(
+        Node\Expr\StaticCall $call,
+        string $currentClass
+    ): ?string {
+        if (! $call->class instanceof Node\Name) {
+            return null;
+        }
+
+        return match (strtolower($call->class->toString())) {
+            'self', 'static' => $currentClass,
+            'parent' => get_parent_class($currentClass) ?: null,
+            default => $call->class->toString(),
+        };
+    }
+
+    private function callbackAliases(
+        Node\Expr\Closure|Node\Expr\ArrowFunction $callback,
+        array $aliases
+    ): array {
+        $argument = $callback->getAttribute('parent');
+        $call = $argument instanceof Node\Arg
+            ? $argument->getAttribute('parent')
+            : null;
+
+        if (! $call instanceof Node\Expr\MethodCall) {
+            return [];
+        }
+
+        $collection = $this->trackedExpression($call->var, $aliases);
+        $parameter = $callback->params[0] ?? null;
+
+        if ($collection === null
+            || ! $parameter instanceof Node\Param
+            || ! $parameter->var instanceof Node\Expr\Variable
+            || ! is_string($parameter->var->name)
+            || ! $this->isModelCollection($collection)) {
+            return [];
+        }
+
+        return [$parameter->var->name => $collection];
+    }
+
+    private function isModelCollection(array $alias): bool
+    {
+        $resolved = $this->accessChainResolver->resolve(
+            $alias['class'],
+            $alias['accesses'] ?? []
+        );
+        $last = $resolved === [] ? null : $resolved[array_key_last($resolved)];
+
+        return ($alias['type'] ?? null) === 'collection'
+            || (($last['kind'] ?? null) === 'relationship'
+                && in_array($last['relation'] ?? null, [
+                    'belongsToMany',
+                    'hasMany',
+                    'hasManyThrough',
+                    'morphMany',
+                    'morphToMany',
+                    'morphedByMany',
+                ], true));
+    }
+
+    private function isCollectionPassthroughCall(
+        Node\Expr\MethodCall $call
+    ): bool {
+        return $call->name instanceof Node\Identifier
+            && in_array(strtolower($call->name->toString()), [
+                'each',
+                'filter',
+                'map',
+                'reject',
+                'sort',
+                'sortby',
+                'sortbydesc',
+                'values',
+            ], true);
     }
 
     private function trackedExpression(
