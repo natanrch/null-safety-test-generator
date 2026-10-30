@@ -257,6 +257,10 @@ class NullScenarioGenerator
         array $analyzedAccess,
         int $resolvedIndex
     ): bool {
+        if ($resolvedIndex < ($analyzedAccess['protectedAccessCount'] ?? 0)
+            || in_array($resolvedIndex, $analyzedAccess['protectedAccessIndices'] ?? [], true)) {
+            return false;
+        }
         if (($target['kind'] ?? null) !== 'attribute') {
             return true;
         }

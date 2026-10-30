@@ -4,6 +4,8 @@ namespace Natan\NullSafetyTestGenerator\Analyzers;
 
 use Natan\NullSafetyTestGenerator\Resolvers\ViewPathResolver;
 use PhpParser\Node;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor\ParentConnectingVisitor;
 use PhpParser\ParserFactory;
 
 class BladeAnalyzer
@@ -26,20 +28,24 @@ class BladeAnalyzer
         string $viewPath,
         ?ViewPathResolver $viewPathResolver,
         array &$visitedPaths,
-        array $aliases
+        array $aliases,
+        array $activePaths = [],
+        array $inheritedGuards = []
     ): array
     {
         $resolvedViewPath = realpath($viewPath);
 
         $visitKey = $resolvedViewPath === false
             ? null
-            : $resolvedViewPath . '|' . serialize($aliases);
+            : $resolvedViewPath . '|' . serialize([$aliases, $inheritedGuards]);
 
-        if ($resolvedViewPath === false || isset($visitedPaths[$visitKey])) {
+        if ($resolvedViewPath === false || isset($visitedPaths[$visitKey])
+            || isset($activePaths[$resolvedViewPath])) {
             return [];
         }
 
         $visitedPaths[$visitKey] = true;
+        $activePaths[$resolvedViewPath] = true;
         $blade = file_get_contents($viewPath);
 
         if ($blade === false) {
@@ -58,12 +64,27 @@ class BladeAnalyzer
         }
 
         $accesses = [];
+        $traverser = new NodeTraverser(new ParentConnectingVisitor());
+        $ast = $traverser->traverse($ast);
+        $assignments = (new \PhpParser\NodeFinder())->findInstanceOf($ast, Node\Expr\Assign::class);
+        foreach ((new \PhpParser\NodeFinder())->findInstanceOf($ast, Node\Expr::class) as $expression) {
+            $expression->setAttribute('inheritedGuards', $inheritedGuards);
+            $expression->setAttribute('fileAssignments', $assignments);
+        }
 
-        $this->analyzeStatements($ast, $aliases, $accesses);
+        $includedViews = [];
+        $this->analyzeStatements(
+            $ast,
+            $aliases,
+            $accesses,
+            static function (string $view, array $context, array $guards) use (&$includedViews): void {
+                $includedViews[] = ['view' => $view, 'aliases' => $context, 'guards' => $guards];
+            }
+        );
 
-        foreach ($this->extractInheritedViewNames($blade) as $viewName) {
+        foreach ($includedViews as $includedView) {
             $includedPath = $this->resolveIncludedViewPath(
-                $viewName,
+                $includedView['view'],
                 $resolvedViewPath,
                 $viewPathResolver
             );
@@ -78,7 +99,9 @@ class BladeAnalyzer
                     $includedPath,
                     $viewPathResolver,
                     $visitedPaths,
-                    []
+                    $includedView['aliases'],
+                    $activePaths,
+                    $includedView['guards']
                 ),
             ];
         }
@@ -101,28 +124,13 @@ class BladeAnalyzer
                     $includedPath,
                     $viewPathResolver,
                     $visitedPaths,
-                    $component['aliases']
+                    $component['aliases'],
+                    $activePaths
                 ),
             ];
         }
 
         return $this->uniqueAccesses($accesses);
-    }
-
-    private function extractInheritedViewNames(string $blade): array
-    {
-        $matched = preg_match_all(
-            '/@(?:include(?:If|When|Unless)?|extends)\s*'
-                . '\(\s*([\'\"])([^\'\"]+)\1/',
-            $blade,
-            $matches
-        );
-
-        if ($matched === false || $matched === 0) {
-            return [];
-        }
-
-        return array_values(array_unique($matches[2]));
     }
 
     private function extractBladeComponents(string $blade): array
@@ -297,7 +305,33 @@ class BladeAnalyzer
 
         $php = str_replace('@endphp', ' ?>', $php);
 
+        $php = preg_replace_callback(
+            '/{!!\s*(.*?)\s*!!}/s',
+            static fn (array $matches): string => '<?php echo ' . $matches[1] . '; ?>',
+            $php
+        ) ?? $php;
+
+        foreach (['includeWhen', 'includeUnless', 'includeIf', 'include', 'extends'] as $directive) {
+            $php = $this->compileParenthesizedDirective(
+                $php,
+                $directive,
+                static fn (string $expression): string =>
+                    '<?php __null_safety_' . $directive . '(' . $expression . '); ?>'
+            );
+        }
+
+        foreach (['class', 'style', 'checked', 'selected', 'disabled', 'readonly', 'required'] as $directive) {
+            $php = $this->compileParenthesizedDirective(
+                $php, $directive,
+                static fn (string $expression): string => '<?php echo ' . $expression . '; ?>'
+            );
+        }
+
         foreach ([
+            'isset' => static fn (string $expression): string =>
+                '<?php if (isset(' . $expression . ')): ?>',
+            'empty' => static fn (string $expression): string =>
+                '<?php if (empty(' . $expression . ')): ?>',
             'forelse' => static fn (string $expression): string =>
                 '<?php foreach (' . $expression . '): ?>',
             'foreach' => static fn (string $expression): string =>
@@ -332,11 +366,15 @@ class BladeAnalyzer
                 '@endforeach',
                 '@endif',
                 '@endunless',
+                '@endisset',
+                '@endempty',
                 '@else',
             ],
             [
                 '<?php endif; ?>',
                 '<?php endforeach; ?>',
+                '<?php endif; ?>',
+                '<?php endif; ?>',
                 '<?php endif; ?>',
                 '<?php endif; ?>',
                 '<?php else: ?>',
@@ -448,10 +486,21 @@ class BladeAnalyzer
     private function analyzeStatements(
         array $statements,
         array $aliases,
-        array &$results
+        array &$results,
+        ?callable $includeView = null
     ): void 
     {
         foreach ($statements as $statement) {
+            foreach ((new \PhpParser\NodeFinder())->findInstanceOf([$statement], Node\Expr::class) as $node) {
+                $node->setAttribute('aliasesAtEvaluation', $aliases);
+            }
+            if ($statement instanceof Node\Stmt\Expression
+                && $statement->expr instanceof Node\Expr\FuncCall
+                && $statement->expr->name instanceof Node\Name
+                && str_starts_with($statement->expr->name->toString(), '__null_safety_')) {
+                $this->analyzeIncludedView($statement->expr, $aliases, $results, $includeView);
+                continue;
+            }
             if (
                 $statement instanceof Node\Stmt\Expression
                 && $statement->expr instanceof Node\Expr\Assign
@@ -471,6 +520,7 @@ class BladeAnalyzer
                     $aliases
                 );
 
+                unset($aliases[$assignment->var->name]);
                 if ($assignedAccess !== null) {
                     unset($assignedAccess['alias']);
                     $aliases[$assignment->var->name] = $assignedAccess;
@@ -495,24 +545,28 @@ class BladeAnalyzer
                 $this->collectExpressionAccesses(
                     $statement->cond,
                     $aliases,
-                    $results
+                    $results,
+                    'condition'
                 );
                 $this->analyzeStatements(
                     $statement->stmts,
                     $aliases,
-                    $results
+                    $results,
+                    $includeView
                 );
 
                 foreach ($statement->elseifs as $elseif) {
                     $this->collectExpressionAccesses(
                         $elseif->cond,
                         $aliases,
-                        $results
+                        $results,
+                        'condition'
                     );
                     $this->analyzeStatements(
                         $elseif->stmts,
                         $aliases,
-                        $results
+                        $results,
+                        $includeView
                     );
                 }
 
@@ -520,7 +574,8 @@ class BladeAnalyzer
                     $this->analyzeStatements(
                         $statement->else->stmts,
                         $aliases,
-                        $results
+                        $results,
+                        $includeView
                     );
                 }
 
@@ -552,8 +607,58 @@ class BladeAnalyzer
             $this->analyzeStatements(
                 $statement->stmts,
                 $foreachAliases,
-                $results
+                $results,
+                $includeView
             );
+        }
+    }
+
+    private function analyzeIncludedView(
+        Node\Expr\FuncCall $call,
+        array $aliases,
+        array &$results,
+        ?callable $includeView
+    ): void {
+        $conditional = in_array($call->name->toString(), [
+            '__null_safety_includeWhen', '__null_safety_includeUnless',
+        ], true);
+        $viewIndex = $conditional ? 1 : 0;
+
+        if ($conditional && isset($call->args[0])) {
+            $this->collectExpressionAccesses($call->args[0]->value, $aliases, $results, 'condition');
+        }
+
+        $view = $call->args[$viewIndex]->value ?? null;
+        $data = $call->args[$viewIndex + 1]->value ?? null;
+        $context = $aliases;
+
+        if ($data instanceof Node\Expr\Array_) {
+            foreach ($data->items as $item) {
+                if ($item === null || ! $item->key instanceof Node\Scalar\String_) {
+                    continue;
+                }
+                $access = $this->analyzeExpression($item->value, $aliases);
+                unset($context[$item->key->value]);
+                if ($access !== null) {
+                    $context[$item->key->value] = $access;
+                }
+            }
+        }
+
+        if ($view instanceof Node\Scalar\String_ && $includeView !== null) {
+            $guards = $this->resolvedGuards($call, $aliases);
+            if ($conditional && isset($call->args[0])) {
+                foreach ($this->conditionGuards(
+                    $call->args[0]->value,
+                    $call->name->toString() === '__null_safety_includeWhen'
+                ) as $guard) {
+                    $resolved = $this->analyzeExpression($guard, $aliases);
+                    if ($resolved !== null) {
+                        $guards[] = $resolved;
+                    }
+                }
+            }
+            $includeView($view->value, $context, $guards);
         }
     }
 
@@ -571,12 +676,36 @@ class BladeAnalyzer
             && ($access['nullsafe'] ?? false) !== true
         ) {
             unset($access['nullsafe']);
+            $protectedCount = $this->protectedAccessCount($expression, $access, $aliases);
+            if ($usage === 'condition' && count($access['accesses']) === 1
+                && $expression instanceof Node\Expr\PropertyFetch) {
+                $protectedCount = 1;
+            }
+            if ($usage === 'condition' && count($access['accesses']) > 1
+                && $expression instanceof Node\Expr\PropertyFetch) {
+                $access['protectedAccessIndices'] = [count($access['accesses']) - 1];
+            }
+            if ($protectedCount > 0) {
+                $access['protectedAccessCount'] = $protectedCount;
+            }
 
             if ($this->isNullSensitiveUsage($usage)) {
                 $access['usage'] = $usage;
             }
 
             $results[] = $access;
+        }
+
+        if ($expression instanceof Node\Expr\Array_) {
+            foreach ($expression->items as $item) {
+                if ($item !== null) {
+                    if ($item->key instanceof Node\Expr) {
+                        $this->collectExpressionAccesses($item->key, $aliases, $results);
+                    }
+                    $this->collectExpressionAccesses($item->value, $aliases, $results);
+                }
+            }
+            return;
         }
 
         if ($expression instanceof Node\Expr\FuncCall) {
@@ -641,6 +770,18 @@ class BladeAnalyzer
             $binaryUsage = $expression instanceof Node\Expr\BinaryOp\Coalesce
                 ? 'null_coalescing'
                 : 'binary_operation';
+            if ($expression instanceof Node\Expr\BinaryOp\BooleanAnd
+                || $expression instanceof Node\Expr\BinaryOp\BooleanOr
+                || $expression instanceof Node\Expr\BinaryOp\LogicalAnd
+                || $expression instanceof Node\Expr\BinaryOp\LogicalOr) {
+                $binaryUsage = 'condition';
+            }
+            if (($expression instanceof Node\Expr\BinaryOp\Identical
+                || $expression instanceof Node\Expr\BinaryOp\NotIdentical)
+                && (($expression->left instanceof Node\Expr\ConstFetch && strtolower($expression->left->name->toString()) === 'null')
+                    || ($expression->right instanceof Node\Expr\ConstFetch && strtolower($expression->right->name->toString()) === 'null'))) {
+                $binaryUsage = 'condition';
+            }
 
             $this->collectExpressionAccesses(
                 $expression->left,
@@ -668,6 +809,99 @@ class BladeAnalyzer
         }
     }
 
+    private function protectedAccessCount(Node\Expr $expression, array $access, array $aliases): int
+    {
+        $count = 0;
+        foreach ($this->resolvedGuards($expression, $aliases) as $resolved) {
+            if ($resolved['root'] === $access['root']
+                && array_slice($access['accesses'], 0, count($resolved['accesses'])) === $resolved['accesses']) {
+                $count = max($count, count($resolved['accesses']));
+            }
+        }
+        return $count;
+    }
+
+    private function resolvedGuards(Node\Expr $expression, array $aliases): array
+    {
+        $guards = [];
+        $child = $expression;
+        while (($parent = $child->getAttribute('parent')) instanceof Node) {
+            if (($parent instanceof Node\Stmt\If_ || $parent instanceof Node\Stmt\ElseIf_)
+                && in_array($child, $parent->stmts, true)) {
+                $guards = [...$guards, ...$this->conditionGuards($parent->cond, true)];
+            }
+            if ($parent instanceof Node\Stmt\Else_) {
+                $owner = $parent->getAttribute('parent');
+                if ($owner instanceof Node\Stmt\If_) {
+                    $guards = [...$guards, ...$this->conditionGuards($owner->cond, false)];
+                    foreach ($owner->elseifs as $previous) {
+                        $guards = [...$guards, ...$this->conditionGuards($previous->cond, false)];
+                    }
+                }
+            }
+            if ($parent instanceof Node\Stmt\ElseIf_) {
+                $owner = $parent->getAttribute('parent');
+                if ($owner instanceof Node\Stmt\If_) {
+                    $guards = [...$guards, ...$this->conditionGuards($owner->cond, false)];
+                    foreach ($owner->elseifs as $previous) {
+                        if ($previous === $parent) {
+                            break;
+                        }
+                        $guards = [...$guards, ...$this->conditionGuards($previous->cond, false)];
+                    }
+                }
+            }
+            if ($parent instanceof Node\Expr\Ternary && $child !== $parent->cond) {
+                $guards = [...$guards, ...$this->conditionGuards($parent->cond, $child === $parent->if)];
+            }
+            if (($parent instanceof Node\Expr\BinaryOp\BooleanAnd || $parent instanceof Node\Expr\BinaryOp\LogicalAnd)
+                && $child === $parent->right) {
+                $guards = [...$guards, ...$this->conditionGuards($parent->left, true)];
+            }
+            if (($parent instanceof Node\Expr\BinaryOp\BooleanOr || $parent instanceof Node\Expr\BinaryOp\LogicalOr)
+                && $child === $parent->right) {
+                $guards = [...$guards, ...$this->conditionGuards($parent->left, false)];
+            }
+            $child = $parent;
+        }
+        $resolvedGuards = array_values(array_filter(
+            $expression->getAttribute('inheritedGuards', []),
+            fn (array $guard): bool => $this->guardSurvivesAssignments($guard, $expression, -1, $aliases)
+        ));
+        foreach ($guards as $guard) {
+            $resolved = $this->analyzeExpression($guard, $guard->getAttribute('aliasesAtEvaluation', $aliases));
+            if ($resolved !== null && $this->guardSurvivesAssignments(
+                $resolved, $expression, $guard->getEndFilePos(), $aliases
+            )) {
+                $resolvedGuards[] = $resolved;
+            }
+        }
+        return $resolvedGuards;
+    }
+
+    private function guardSurvivesAssignments(array $guard, Node\Expr $expression, int $after, array $aliases): bool
+    {
+        foreach ($expression->getAttribute('fileAssignments', []) as $assignment) {
+            if ($assignment->getStartFilePos() <= $after
+                || $assignment->getEndFilePos() >= $expression->getStartFilePos()) {
+                continue;
+            }
+            $target = $this->analyzeExpression(
+                $assignment->var,
+                $assignment->getAttribute('aliasesAtEvaluation', $aliases)
+            );
+            if ($target !== null && $target['root'] === $guard['root']) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function conditionGuards(Node\Expr $condition, bool $truthy): array
+    {
+        return (new ConditionGuardAnalyzer())->analyze($condition, $truthy);
+    }
+
     private function collectFunctionArguments(
         Node\Expr\FuncCall $expression,
         array $aliases,
@@ -681,6 +915,12 @@ class BladeAnalyzer
                 true
             )
         ) {
+            foreach ($expression->args as $argument) {
+                $argumentAccess = $this->analyzeExpression($argument->value, $aliases);
+                if ($argumentAccess !== null && count($argumentAccess['accesses']) > 1) {
+                    $this->collectExpressionAccesses($argument->value, $aliases, $results, 'condition');
+                }
+            }
             return;
         }
 

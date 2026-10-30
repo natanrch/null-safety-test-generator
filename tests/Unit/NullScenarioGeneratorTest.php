@@ -507,6 +507,22 @@ class NullScenarioGeneratorTest extends TestCase
         ]], $result);
     }
 
+    public function test_it_preserves_unguarded_relationships_beyond_a_guarded_prefix(): void
+    {
+        $result = (new NullScenarioGenerator())->generate(['accesses' => [[
+            'root' => 'post', 'class' => FakePost::class, 'type' => 'object',
+            'protectedAccessCount' => 1,
+            'resolvedAccesses' => [
+                ['model' => FakePost::class, 'property' => 'author', 'kind' => 'relationship',
+                    'relation' => 'belongsTo', 'relatedClass' => FakeAuthor::class],
+                ['model' => FakeAuthor::class, 'property' => 'profile', 'kind' => 'relationship',
+                    'relation' => 'hasOne', 'relatedClass' => FakeProfile::class],
+            ],
+        ]]]);
+        $this->assertCount(1, $result);
+        $this->assertSame(['author', 'profile'], $result[0]['path']);
+    }
+
     private function generateAttributeScenarios(
         array $accesses,
         ?string $usage = null,

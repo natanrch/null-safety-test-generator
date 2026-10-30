@@ -238,6 +238,7 @@ class BladeAnalyzerTest extends TestCase
                 'accesses' => [
                     ['type' => 'property', 'name' => 'active'],
                 ],
+                'protectedAccessCount' => 1,
             ],
             [
                 'root' => 'objects',
@@ -245,6 +246,7 @@ class BladeAnalyzerTest extends TestCase
                 'accesses' => [
                     ['type' => 'property', 'name' => 'date'],
                 ],
+                'protectedAccessCount' => 1,
             ],
             [
                 'root' => 'objects',
@@ -253,6 +255,7 @@ class BladeAnalyzerTest extends TestCase
                     ['type' => 'property', 'name' => 'date'],
                     ['type' => 'method', 'name' => 'format'],
                 ],
+                'protectedAccessCount' => 1,
             ],
             [
                 'root' => 'objects',
@@ -343,6 +346,160 @@ class BladeAnalyzerTest extends TestCase
                 ],
             ],
         ], $result);
+    }
+
+    public function test_it_analyzes_unescaped_output(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('raw-output.blade.php'));
+        $this->assertContains([
+            'root' => 'object',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'relation'],
+                ['type' => 'property', 'name' => 'name'],
+            ],
+        ], $result);
+        $this->assertContains([
+            'root' => 'object',
+            'accesses' => [['type' => 'property', 'name' => 'title']],
+            'usage' => 'function_argument',
+        ], $result);
+    }
+
+    public function test_it_maps_include_parameters_to_the_original_model(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('includes/parameters.blade.php'));
+        $this->assertContains([
+            'root' => 'post', 'alias' => 'item',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'author'],
+                ['type' => 'property', 'name' => 'profile'],
+                ['type' => 'property', 'name' => 'name'],
+            ],
+        ], $result);
+    }
+
+    public function test_it_passes_foreach_context_to_includes(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('includes/loop-context.blade.php'));
+        $this->assertContains([
+            'root' => 'posts', 'alias' => 'item',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'profile'],
+                ['type' => 'property', 'name' => 'name'],
+            ],
+        ], $result);
+    }
+
+    public function test_it_resolves_conditional_include_views_and_parameters(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('includes/conditional.blade.php'));
+        foreach (['author', 'editor'] as $relation) {
+            $this->assertContains([
+                'root' => 'post', 'alias' => 'item',
+                'accesses' => [
+                    ['type' => 'property', 'name' => $relation],
+                    ['type' => 'property', 'name' => 'profile'],
+                    ['type' => 'property', 'name' => 'name'],
+                ],
+            ], $result);
+        }
+    }
+
+    public function test_it_preserves_php_aliases_across_nested_includes_and_stops_cycles(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('includes/nested-context.blade.php'));
+        $this->assertContains([
+            'root' => 'post', 'alias' => 'item',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'author'],
+                ['type' => 'property', 'name' => 'profile'],
+                ['type' => 'property', 'name' => 'name'],
+            ],
+        ], $result);
+        $this->assertNotContains('ignored', array_column($result, 'root'));
+        $this->assertCount(2, $result);
+    }
+
+    public function test_it_analyzes_attribute_directives(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('attribute-directives.blade.php'));
+        foreach (['author', 'editor', 'reviewer', 'owner', 'manager', 'creator', 'publisher'] as $relation) {
+            $this->assertContains([
+                'root' => 'post',
+                'accesses' => [
+                    ['type' => 'property', 'name' => $relation],
+                    ['type' => 'property', 'name' => 'active'],
+                ],
+            ], $result);
+        }
+    }
+
+    public function test_a_guarded_blade_generates_only_the_unprotected_relationship_scenario(): void
+    {
+        $accesses = (new BladeAnalyzer())->analyze($this->viewPath('guarded-only.blade.php'));
+        $resolver = new \Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver(
+            new \Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver()
+        );
+        foreach ($accesses as &$access) {
+            $access['class'] = \Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost::class;
+            $access['type'] = 'object';
+            $access['resolvedAccesses'] = $resolver->resolve($access['class'], $access['accesses']);
+        }
+        unset($access);
+        $scenarios = (new \Natan\NullSafetyTestGenerator\Generators\NullScenarioGenerator())->generate([
+            'accesses' => $accesses,
+        ]);
+        $this->assertSame([['author', 'profile']], array_column($scenarios, 'path'));
+    }
+
+    public function test_it_marks_only_the_guarded_prefix_and_preserves_unguarded_accesses(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('guarded-accesses.blade.php'));
+        foreach (['author', 'editor', 'owner', 'reviewer'] as $relation) {
+            $matches = array_values(array_filter($result, static fn (array $access): bool =>
+                ($access['accesses'][0]['name'] ?? null) === $relation
+                && count($access['accesses']) > 1
+            ));
+            $this->assertSame(1, $matches[0]['protectedAccessCount'] ?? 0);
+        }
+        $this->assertContains([
+            'root' => 'post',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'author'],
+                ['type' => 'property', 'name' => 'name'],
+            ],
+        ], $result);
+    }
+
+    public function test_include_guards_cross_nested_files_without_leaking_to_other_calls(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('includes/guard-parent.blade.php'));
+        $expected = [
+            'root' => 'post', 'alias' => 'item',
+            'accesses' => [
+                ['type' => 'property', 'name' => 'author'],
+                ['type' => 'property', 'name' => 'profile'],
+                ['type' => 'property', 'name' => 'name'],
+            ],
+        ];
+        $this->assertContains([...$expected, 'protectedAccessCount' => 1], $result);
+        $this->assertContains($expected, $result);
+    }
+
+    public function test_conditional_includes_propagate_their_own_guards(): void
+    {
+        $result = (new BladeAnalyzer())->analyze($this->viewPath('includes/guard-conditional.blade.php'));
+        foreach (['author', 'editor'] as $relation) {
+            $this->assertContains([
+                'root' => 'post', 'alias' => 'item',
+                'accesses' => [
+                    ['type' => 'property', 'name' => $relation],
+                    ['type' => 'property', 'name' => 'profile'],
+                    ['type' => 'property', 'name' => 'name'],
+                ],
+                'protectedAccessCount' => 1,
+            ], $result);
+        }
     }
 
     private function viewPath(string $fileName): string

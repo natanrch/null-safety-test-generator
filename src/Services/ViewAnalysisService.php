@@ -110,6 +110,12 @@ class ViewAnalysisService
             }
 
             $combinedAccess['accesses'] = $bladeAccess['accesses'] ?? [];
+            if (isset($bladeAccess['protectedAccessIndices'])) {
+                $combinedAccess['protectedAccessIndices'] = $bladeAccess['protectedAccessIndices'];
+            }
+            if (isset($bladeAccess['protectedAccessCount'])) {
+                $combinedAccess['protectedAccessCount'] = $bladeAccess['protectedAccessCount'];
+            }
             $combinedAccess['resolvedAccesses'] =
                 $this->accessChainResolver->resolve(
                     $variable['class'],
