@@ -37,60 +37,28 @@ class ControllerDataDependencyAnalyzer
             return [];
         }
 
-        $assignments = (new NodeFinder())->findInstanceOf(
-            $methodNode->stmts ?? [],
-            Node\Expr\Assign::class
-        );
-        usort(
-            $assignments,
-            static fn (Node\Expr\Assign $left, Node\Expr\Assign $right): int =>
-                $left->getStartFilePos() <=> $right->getStartFilePos()
-        );
-
-        $modelSources = [];
-        $dependencyGraph = [];
-
-        foreach ($assignments as $assignment) {
-            if (
-                ! $assignment->var instanceof Node\Expr\Variable
-                || ! is_string($assignment->var->name)
-            ) {
-                continue;
-            }
-
-            $variable = $assignment->var->name;
-            $modelSource = $this->modelSource($variable, $assignment->expr);
-
-            if ($modelSource !== null) {
-                $modelSources[$variable] = $modelSource;
-            }
-
-            $dependencies = [];
-
-            foreach ($this->expressionVariables($assignment->expr) as $dependency) {
-                if ($dependency === $variable) {
-                    foreach ($dependencyGraph[$variable] ?? [] as $previous) {
-                        $dependencies[$previous] = true;
-                    }
-
-                    continue;
-                }
-
-                $dependencies[$dependency] = true;
-            }
-
-            $dependencyGraph[$variable] = array_keys($dependencies);
-        }
+        $state = $this->analyzeStatements($methodNode->stmts ?? [], [
+            'modelSources' => [],
+            'dependencyGraph' => [],
+        ]);
+        $modelSources = $state['modelSources'];
+        $dependencyGraph = $state['dependencyGraph'];
 
         $preconditionsByVariable = [];
 
-        foreach (array_keys($dependencyGraph) as $variable) {
-            $preconditions = $this->resolvePreconditions(
+        foreach (array_unique([
+            ...array_keys($dependencyGraph),
+            ...array_keys($modelSources),
+        ]) as $variable) {
+            $preconditions = isset($modelSources[$variable])
+                ? [$variable => $modelSources[$variable]]
+                : [];
+            $preconditions = [...$preconditions, ...$this->resolvePreconditions(
                 $variable,
                 $dependencyGraph,
                 $modelSources,
                 []
-            );
+            )];
 
             if ($preconditions !== []) {
                 $preconditionsByVariable[$variable] = array_values(
@@ -100,6 +68,192 @@ class ControllerDataDependencyAnalyzer
         }
 
         return $preconditionsByVariable;
+    }
+
+    private function analyzeStatements(array $statements, array $state): array
+    {
+        foreach ($statements as $statement) {
+            if ($statement instanceof Node\Stmt\If_) {
+                $state = $this->analyzeConditional($statement, $state);
+                continue;
+            }
+
+            if ($this->mayExecuteZeroTimes($statement)) {
+                foreach ($this->assignedVariables($statement) as $variable) {
+                    unset(
+                        $state['modelSources'][$variable],
+                        $state['dependencyGraph'][$variable]
+                    );
+                }
+
+                continue;
+            }
+
+            if (! $statement instanceof Node\Stmt\Expression) {
+                continue;
+            }
+
+            $assignments = (new NodeFinder())->findInstanceOf(
+                [$statement->expr],
+                Node\Expr\Assign::class
+            );
+            usort(
+                $assignments,
+                static fn (Node\Expr\Assign $left, Node\Expr\Assign $right): int =>
+                    $left->getStartFilePos() <=> $right->getStartFilePos()
+            );
+
+            foreach ($assignments as $assignment) {
+                $state = $this->analyzeAssignment($assignment, $state);
+            }
+        }
+
+        return $state;
+    }
+
+    private function analyzeAssignment(
+        Node\Expr\Assign $assignment,
+        array $state
+    ): array {
+        if (
+            ! $assignment->var instanceof Node\Expr\Variable
+            || ! is_string($assignment->var->name)
+        ) {
+            return $state;
+        }
+
+        $variable = $assignment->var->name;
+        $modelSource = $this->modelSource($variable, $assignment->expr);
+
+        if ($modelSource === null) {
+            unset($state['modelSources'][$variable]);
+        } else {
+            $state['modelSources'][$variable] = $modelSource;
+        }
+
+        $dependencies = [];
+
+        foreach ($this->expressionVariables($assignment->expr) as $dependency) {
+            if ($dependency === $variable) {
+                foreach ($state['dependencyGraph'][$variable] ?? [] as $previous) {
+                    $dependencies[$previous] = true;
+                }
+
+                continue;
+            }
+
+            $dependencies[$dependency] = true;
+        }
+
+        $state['dependencyGraph'][$variable] = array_keys($dependencies);
+
+        return $state;
+    }
+
+    private function analyzeConditional(
+        Node\Stmt\If_ $if,
+        array $state
+    ): array {
+        $continuingStates = [];
+        $branches = [$if->stmts];
+
+        foreach ($if->elseifs as $elseif) {
+            $branches[] = $elseif->stmts;
+        }
+
+        if ($if->else !== null) {
+            $branches[] = $if->else->stmts;
+        } else {
+            $continuingStates[] = $state;
+        }
+
+        foreach ($branches as $statements) {
+            if ($this->statementsTerminate($statements)) {
+                continue;
+            }
+
+            $continuingStates[] = $this->analyzeStatements(
+                $statements,
+                $state
+            );
+        }
+
+        return $continuingStates === []
+            ? $state
+            : $this->intersectStates($continuingStates);
+    }
+
+    private function intersectStates(array $states): array
+    {
+        $result = array_shift($states);
+
+        foreach ($states as $state) {
+            foreach (['modelSources', 'dependencyGraph'] as $section) {
+                foreach ($result[$section] as $variable => $value) {
+                    if (
+                        ! array_key_exists($variable, $state[$section])
+                        || $state[$section][$variable] !== $value
+                    ) {
+                        unset($result[$section][$variable]);
+                    }
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    private function statementsTerminate(array $statements): bool
+    {
+        $last = end($statements);
+
+        if ($last instanceof Node\Stmt\Return_) {
+            return true;
+        }
+
+        if (! $last instanceof Node\Stmt\Expression) {
+            return false;
+        }
+
+        if (
+            $last->expr instanceof Node\Expr\Exit_
+            || $last->expr instanceof Node\Expr\Throw_
+        ) {
+            return true;
+        }
+
+        return $last->expr instanceof Node\Expr\FuncCall
+            && $last->expr->name instanceof Node\Name
+            && strtolower($last->expr->name->toString()) === 'abort';
+    }
+
+    private function mayExecuteZeroTimes(Node\Stmt $statement): bool
+    {
+        return $statement instanceof Node\Stmt\For_
+            || $statement instanceof Node\Stmt\Foreach_
+            || $statement instanceof Node\Stmt\While_
+            || $statement instanceof Node\Stmt\Do_
+            || $statement instanceof Node\Stmt\Switch_
+            || $statement instanceof Node\Stmt\TryCatch;
+    }
+
+    private function assignedVariables(Node\Stmt $statement): array
+    {
+        $variables = [];
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            [$statement],
+            Node\Expr\Assign::class
+        ) as $assignment) {
+            if (
+                $assignment->var instanceof Node\Expr\Variable
+                && is_string($assignment->var->name)
+            ) {
+                $variables[$assignment->var->name] = true;
+            }
+        }
+
+        return array_keys($variables);
     }
 
     private function modelSource(

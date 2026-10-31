@@ -19,6 +19,7 @@ use Natan\NullSafetyTestGenerator\Services\ViewAnalysisService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\JsonPostController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\GetServiceController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class NullSafetyTestGenerationServiceTest extends TestCase
@@ -199,6 +200,41 @@ class NullSafetyTestGenerationServiceTest extends TestCase
                 . \Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author::class
                 . "::factory()->create([\n            'name' => 'active',",
             $result['code']
+        );
+    }
+
+    public function test_it_creates_a_filtered_root_before_testing_its_nested_accesses(): void
+    {
+        $this->app->make(Router::class)
+            ->get('/api/authors/active', [
+                JsonPostController::class,
+                'constrainedRootAccess',
+            ])
+            ->name('api.authors.active');
+
+        $result = $this->app
+            ->make(NullSafetyTestGenerationService::class)
+            ->generate(
+                JsonPostController::class,
+                'constrainedRootAccess'
+            );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            'when_author_profile_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$author = \\' . Author::class
+                . "::factory()->state(['name' => 'active'])->create();",
+            $result['code']
+        );
+        $this->assertSame(
+            1,
+            substr_count(
+                $result['code'],
+                '$author = \\' . Author::class . '::factory()'
+            )
         );
     }
 

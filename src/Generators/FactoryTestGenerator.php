@@ -265,7 +265,8 @@ class FactoryTestGenerator
             $code = $this->generateAbsentRelationshipCode(
                 $root,
                 $resolvedPath,
-                $strategy
+                $strategy,
+                $scenario['rootConstraints'] ?? []
             );
 
             if ($code === null) {
@@ -288,7 +289,8 @@ class FactoryTestGenerator
         if (count($resolvedPath) > 1) {
             $code = $this->generateNestedAttributeCode(
                 $root,
-                $resolvedPath
+                $resolvedPath,
+                $scenario['rootConstraints'] ?? []
             );
 
             if ($code === null) {
@@ -301,12 +303,25 @@ class FactoryTestGenerator
             ];
         }
 
+        $attributes = is_array($scenario['rootConstraints'] ?? null)
+            ? $scenario['rootConstraints']
+            : [];
+        $attributes[$property] = null;
+
         return [
             'generated' => true,
             'code' => implode("\n", [
                 '$' . $root . ' = \\' . $modelClass
                     . '::factory()->create([',
-                "    '" . $property . "' => null,",
+                ...array_map(
+                    static fn (mixed $value, string $attribute): string =>
+                        '    ' . var_export($attribute, true)
+                        . ' => ' . ($value === null
+                            ? 'null'
+                            : var_export($value, true)) . ',',
+                    $attributes,
+                    array_keys($attributes)
+                ),
                 ']);',
             ]),
         ];
@@ -315,7 +330,8 @@ class FactoryTestGenerator
     private function generateAbsentRelationshipCode(
         string $root,
         array $resolvedPath,
-        string $strategy
+        string $strategy,
+        array $rootConstraints = []
     ): ?string {
         $target = array_pop($resolvedPath);
 
@@ -378,12 +394,18 @@ class FactoryTestGenerator
             }
         }
 
+        $factoryExpression = $this->applyRelationshipConstraints(
+            $factoryExpression,
+            $rootConstraints
+        );
+
         return '$' . $root . ' = ' . $factoryExpression . '->create();';
     }
 
     private function generateNestedAttributeCode(
         string $root,
-        array $resolvedPath
+        array $resolvedPath,
+        array $rootConstraints = []
     ): ?string {
         $target = array_pop($resolvedPath);
 
@@ -412,6 +434,11 @@ class FactoryTestGenerator
                 return null;
             }
         }
+
+        $factoryExpression = $this->applyRelationshipConstraints(
+            $factoryExpression,
+            $rootConstraints
+        );
 
         return '$' . $root . ' = ' . $factoryExpression . '->create();';
     }

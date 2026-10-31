@@ -216,6 +216,54 @@ class JsonPostController
         return $posts;
     }
 
+    public function constrainedRootAccess()
+    {
+        $author = Author::where('name', 'active')->first();
+
+        return response()->json([
+            'profile' => $author->profile->name,
+        ]);
+    }
+
+    public function guardedConstrainedRootAccess()
+    {
+        $author = Author::where('name', 'active')->first();
+
+        if (! $author) {
+            abort(404);
+        }
+
+        $profile = $author->profile;
+
+        return response()->json([
+            'profile' => $profile->name,
+        ]);
+    }
+
+    public function conditionallyDefinedRoot(bool $enabled)
+    {
+        if ($enabled) {
+            $author = Author::where('name', 'active')->first();
+        }
+
+        $posts = Post::where('author_id', $author->id)->get();
+
+        return $posts;
+    }
+
+    public function conditionallyOverwrittenRoot(bool $enabled)
+    {
+        $author = Author::where('name', 'active')->first();
+
+        if ($enabled) {
+            $author = Author::where('name', 'inactive')->first();
+        }
+
+        $posts = Post::where('author_id', $author->id)->get();
+
+        return $posts;
+    }
+
     public function collectionWithUnusedNullableRoot()
     {
         $author = Author::where('name', 'active')->first();

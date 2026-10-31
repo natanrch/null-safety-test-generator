@@ -76,4 +76,54 @@ class ControllerDataDependencyAnalyzerTest extends TestCase
 
         $this->assertArrayNotHasKey('posts', $result);
     }
+
+    public function test_it_treats_a_constrained_root_as_its_own_precondition(): void
+    {
+        $result = (new ControllerDataDependencyAnalyzer())->analyze(
+            JsonPostController::class,
+            'constrainedRootAccess'
+        );
+
+        $this->assertSame([[
+            'root' => 'author',
+            'class' => Author::class,
+            'retrievalMethod' => 'first',
+            'constraints' => ['name' => 'active'],
+        ]], $result['author'] ?? null);
+    }
+
+    public function test_it_preserves_a_source_after_an_early_exit_guard(): void
+    {
+        $result = (new ControllerDataDependencyAnalyzer())->analyze(
+            JsonPostController::class,
+            'guardedConstrainedRootAccess'
+        );
+
+        $this->assertSame(
+            ['name' => 'active'],
+            $result['profile'][0]['constraints'] ?? null
+        );
+    }
+
+    public function test_it_does_not_treat_a_source_defined_in_only_one_branch_as_dominating(): void
+    {
+        $result = (new ControllerDataDependencyAnalyzer())->analyze(
+            JsonPostController::class,
+            'conditionallyDefinedRoot'
+        );
+
+        $this->assertArrayNotHasKey('author', $result);
+        $this->assertArrayNotHasKey('posts', $result);
+    }
+
+    public function test_it_invalidates_a_source_conditionally_overwritten_with_other_constraints(): void
+    {
+        $result = (new ControllerDataDependencyAnalyzer())->analyze(
+            JsonPostController::class,
+            'conditionallyOverwrittenRoot'
+        );
+
+        $this->assertArrayNotHasKey('author', $result);
+        $this->assertArrayNotHasKey('posts', $result);
+    }
 }

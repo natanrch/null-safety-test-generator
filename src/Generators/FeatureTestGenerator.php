@@ -17,6 +17,7 @@ class FeatureTestGenerator
         array $route
     ): array 
     {
+        $scenario = $this->withRootPreconditionConstraints($scenario);
         $validationError = $this->validateInput($scenario, $route);
 
         if ($validationError !== null) {
@@ -258,6 +259,7 @@ class FeatureTestGenerator
             if (
                 ! is_string($root)
                 || isset($generatedRoots[$root])
+                || $root === ($scenario['root'] ?? null)
                 || (
                     ($scenario['strategy'] ?? null) === 'missing_root_object'
                     && $root === ($scenario['root'] ?? null)
@@ -278,6 +280,25 @@ class FeatureTestGenerator
         }
 
         return ['generated' => true, 'code' => $code];
+    }
+
+    private function withRootPreconditionConstraints(array $scenario): array
+    {
+        foreach ($scenario['modelPreconditions'] ?? [] as $precondition) {
+            if (
+                ! is_array($precondition)
+                || ($precondition['root'] ?? null)
+                    !== ($scenario['root'] ?? null)
+                || ! is_array($precondition['constraints'] ?? null)
+            ) {
+                continue;
+            }
+
+            $scenario['rootConstraints'] = $precondition['constraints'];
+            break;
+        }
+
+        return $scenario;
     }
 
     private function isOmittedRequestPrecondition(
