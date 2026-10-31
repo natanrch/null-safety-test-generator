@@ -13,6 +13,22 @@ class Post extends Model
 
     protected $guarded = [];
 
+    protected $appends = [
+        'author_label',
+        'hidden_author_posts',
+    ];
+
+    protected $hidden = [
+        'hidden_author_posts',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'published_at' => 'datetime',
+        ];
+    }
+
     protected static function newFactory(): PostFactory
     {
         return PostFactory::new();
@@ -21,5 +37,15 @@ class Post extends Model
     public function author(): BelongsTo
     {
         return $this->belongsTo(Author::class);
+    }
+
+    public function getAuthorLabelAttribute(): string
+    {
+        return $this->author->profile->name;
+    }
+
+    public function getHiddenAuthorPostsAttribute(): int
+    {
+        return $this->author->posts->count();
     }
 }

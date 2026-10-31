@@ -174,7 +174,7 @@ class NullSafetyTestGenerationServiceTest extends TestCase
             );
 
         $this->assertTrue($result['generated']);
-        $this->assertSame(2, substr_count(
+        $this->assertSame(4, substr_count(
             $result['code'],
             'public function test_'
         ));
@@ -184,6 +184,14 @@ class NullSafetyTestGenerationServiceTest extends TestCase
         );
         $this->assertStringContainsString(
             'test_api_posts_by_author_as_json_does_not_fail_when_posts_is_empty',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'when_posts_author_is_null',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            'when_posts_author_profile_is_null',
             $result['code']
         );
         $this->assertStringContainsString(

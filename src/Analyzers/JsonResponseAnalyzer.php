@@ -2,7 +2,9 @@
 
 namespace Natan\NullSafetyTestGenerator\Analyzers;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Str;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
@@ -190,6 +192,12 @@ class JsonResponseAnalyzer
                 $this->collectExpression(
                     $payloadExpression,
                     $aliases,
+                    $accesses
+                );
+                $this->analyzeSerializedModels(
+                    $payloadExpression,
+                    $aliases,
+                    $methodNode,
                     $accesses
                 );
 
@@ -626,6 +634,389 @@ class JsonResponseAnalyzer
                     $accesses
                 );
             }
+        }
+    }
+
+    private function analyzeSerializedModels(
+        Node\Expr $expression,
+        array $aliases,
+        Node\Stmt\ClassMethod $methodNode,
+        array &$accesses
+    ): void {
+        $serialized = [];
+
+        if ($expression instanceof Node\Expr\Variable
+            || $expression instanceof Node\Expr\MethodCall) {
+            $alias = $this->serializedModelAlias(
+                $expression,
+                $aliases
+            );
+
+            if ($alias !== null) {
+                $serialized[] = $alias;
+            }
+        }
+
+        if ($expression instanceof Node\Expr\Array_) {
+            foreach ($expression->items as $item) {
+                if (! $item?->value instanceof Node\Expr) {
+                    continue;
+                }
+
+                $alias = $this->serializedModelAlias(
+                    $item->value,
+                    $aliases
+                );
+
+                if ($alias !== null) {
+                    $serialized[] = $alias;
+                }
+            }
+        }
+
+        $visited = [];
+
+        foreach ($serialized as $alias) {
+            $loaded = $this->loadedRelationships(
+                $methodNode,
+                $alias
+            );
+            $this->analyzeSerializedModel(
+                $alias,
+                $loaded,
+                $accesses,
+                $visited
+            );
+        }
+    }
+
+    private function serializedModelAlias(
+        Node\Expr $expression,
+        array $aliases
+    ): ?array {
+        $alias = null;
+
+        if ($expression instanceof Node\Expr\Variable) {
+            $alias = $this->trackedExpression($expression, $aliases);
+        }
+
+        if ($expression instanceof Node\Expr\MethodCall
+            && $expression->name instanceof Node\Identifier
+            && in_array(
+                $expression->name->toString(),
+                ['load', 'loadMissing'],
+                true
+            )) {
+            $alias = $this->trackedExpression(
+                $expression->var,
+                $aliases
+            );
+        }
+
+        return is_array($alias)
+            && is_string($alias['class'] ?? null)
+            && is_subclass_of($alias['class'], Model::class)
+                ? $alias
+                : null;
+    }
+
+    private function analyzeSerializedModel(
+        array $alias,
+        array $loaded,
+        array &$accesses,
+        array &$visited
+    ): void {
+        $modelClass = $this->serializedModelClass($alias);
+
+        if ($modelClass === null) {
+            return;
+        }
+
+        $visitKey = $modelClass . ':'
+            . serialize([$alias, $loaded]);
+
+        if (isset($visited[$visitKey])) {
+            return;
+        }
+
+        $visited[$visitKey] = true;
+
+        try {
+            /** @var Model $model */
+            $model = (new ReflectionClass($modelClass))->newInstance();
+        } catch (Throwable) {
+            return;
+        }
+
+        $visible = $model->getVisible();
+        $hidden = $model->getHidden();
+
+        foreach ($this->defaultEagerLoads($model) as $relationship) {
+            if (is_string($relationship)) {
+                $this->addRelationshipPath($loaded, $relationship);
+            }
+        }
+
+        foreach ($model->getCasts() as $attribute => $_cast) {
+            if (! is_string($attribute)
+                || ! $this->isSerializedAttribute(
+                    $attribute,
+                    $visible,
+                    $hidden
+                )) {
+                continue;
+            }
+
+            $this->addAccess(
+                $this->appendSerializedProperty($alias, $attribute),
+                null,
+                $accesses
+            );
+        }
+
+        foreach ($model->getAppends() as $attribute) {
+            if (! is_string($attribute)
+                || ! $this->isSerializedAttribute(
+                    $attribute,
+                    $visible,
+                    $hidden
+                )) {
+                continue;
+            }
+
+            $this->analyzeSerializedAccessor(
+                $modelClass,
+                $attribute,
+                $alias,
+                $accesses
+            );
+        }
+
+        foreach ($loaded as $relationship => $nested) {
+            if (! is_string($relationship)
+                || ! is_array($nested)
+                || ! $this->isSerializedAttribute(
+                    $relationship,
+                    $visible,
+                    $hidden
+                )) {
+                continue;
+            }
+
+            $relationshipAccess = $this->appendSerializedProperty(
+                $alias,
+                $relationship
+            );
+            $resolved = $this->accessChainResolver->resolve(
+                $alias['class'],
+                $relationshipAccess['accesses']
+            );
+            $target = $resolved === []
+                ? null
+                : $resolved[array_key_last($resolved)];
+
+            if (($target['kind'] ?? null) !== 'relationship'
+                || ! is_string($target['relatedClass'] ?? null)) {
+                continue;
+            }
+
+            $relationshipAccess['protectedAccessCount'] = max(
+                $relationshipAccess['protectedAccessCount'] ?? 0,
+                count($relationshipAccess['accesses'])
+            );
+            $relationshipAccess['serializedModelClass']
+                = $target['relatedClass'];
+
+            $this->analyzeSerializedModel(
+                $relationshipAccess,
+                $nested,
+                $accesses,
+                $visited
+            );
+        }
+    }
+
+    private function serializedModelClass(array $alias): ?string
+    {
+        $class = $alias['serializedModelClass']
+            ?? $alias['class']
+            ?? null;
+
+        return is_string($class)
+            && is_subclass_of($class, Model::class)
+                ? $class
+                : null;
+    }
+
+    private function isSerializedAttribute(
+        string $attribute,
+        array $visible,
+        array $hidden
+    ): bool {
+        return ! in_array($attribute, $hidden, true)
+            && ($visible === []
+                || in_array($attribute, $visible, true));
+    }
+
+    private function defaultEagerLoads(Model $model): array
+    {
+        try {
+            $property = (new ReflectionClass($model))->getProperty('with');
+            $value = $property->getValue($model);
+        } catch (Throwable) {
+            return [];
+        }
+
+        return is_array($value) ? $value : [];
+    }
+
+    private function analyzeSerializedAccessor(
+        string $modelClass,
+        string $attribute,
+        array $alias,
+        array &$accesses
+    ): void {
+        $legacy = 'get' . Str::studly($attribute) . 'Attribute';
+        $methodName = method_exists($modelClass, $legacy)
+            ? $legacy
+            : (method_exists($modelClass, $attribute)
+                ? $attribute
+                : null);
+
+        if ($methodName === null) {
+            return;
+        }
+
+        try {
+            $method = new ReflectionMethod($modelClass, $methodName);
+            $methodNode = $this->parseMethod($method);
+        } catch (Throwable) {
+            return;
+        }
+
+        if ($methodNode === null) {
+            return;
+        }
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $methodNode->stmts ?? [],
+            Node\Stmt\Return_::class
+        ) as $return) {
+            if ($return->expr instanceof Node\Expr) {
+                $this->collectExpression(
+                    $return->expr,
+                    ['this' => $alias],
+                    $accesses
+                );
+            }
+        }
+    }
+
+    private function appendSerializedProperty(
+        array $alias,
+        string $property
+    ): array {
+        $alias['accesses'][] = [
+            'type' => 'property',
+            'name' => $property,
+        ];
+
+        return $alias;
+    }
+
+    private function loadedRelationships(
+        Node\Stmt\ClassMethod $method,
+        array $alias
+    ): array {
+        if (($alias['accesses'] ?? []) !== []) {
+            return [];
+        }
+
+        $root = $alias['root'] ?? null;
+
+        if (! is_string($root)) {
+            return [];
+        }
+
+        $tree = [];
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $method->stmts ?? [],
+            Node\Expr\MethodCall::class
+        ) as $call) {
+            if (! $call->name instanceof Node\Identifier
+                || ! in_array(
+                    $call->name->toString(),
+                    ['load', 'loadMissing'],
+                    true
+                )
+                || ! $call->var instanceof Node\Expr\Variable
+                || $call->var->name !== $root) {
+                continue;
+            }
+
+            foreach ($this->relationshipNames($call->args) as $name) {
+                $this->addRelationshipPath($tree, $name);
+            }
+        }
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $method->stmts ?? [],
+            Node\Expr\Assign::class
+        ) as $assignment) {
+            if (! $assignment->var instanceof Node\Expr\Variable
+                || $assignment->var->name !== $root) {
+                continue;
+            }
+
+            foreach ((new NodeFinder())->findInstanceOf(
+                [$assignment->expr],
+                Node\Expr\StaticCall::class
+            ) as $call) {
+                if (! $call->name instanceof Node\Identifier
+                    || $call->name->toString() !== 'with') {
+                    continue;
+                }
+
+                foreach ($this->relationshipNames($call->args) as $name) {
+                    $this->addRelationshipPath($tree, $name);
+                }
+            }
+        }
+
+        return $tree;
+    }
+
+    private function relationshipNames(array $arguments): array
+    {
+        $names = [];
+
+        foreach ($arguments as $argument) {
+            $value = $argument->value;
+
+            if ($value instanceof Node\Scalar\String_) {
+                $names[] = $value->value;
+            }
+
+            if ($value instanceof Node\Expr\Array_) {
+                foreach ($value->items as $item) {
+                    if ($item?->value instanceof Node\Scalar\String_) {
+                        $names[] = $item->value->value;
+                    }
+                }
+            }
+        }
+
+        return $names;
+    }
+
+    private function addRelationshipPath(array &$tree, string $path): void
+    {
+        $current =& $tree;
+
+        foreach (array_filter(explode('.', $path)) as $segment) {
+            $current[$segment] ??= [];
+            $current =& $current[$segment];
         }
     }
 

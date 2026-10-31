@@ -5,6 +5,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers;
 use Illuminate\Http\Request;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\VisibleSerializedPost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\NestedPostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\ConditionalPostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostResource;
@@ -73,6 +74,25 @@ class JsonPostController
 
     public function directModel(Post $post)
     {
+        return $post;
+    }
+
+    public function visibleModel(VisibleSerializedPost $post)
+    {
+        return $post;
+    }
+
+    public function loadedModel(Post $post)
+    {
+        $post->load('author.posts');
+
+        return $post;
+    }
+
+    public function eagerLoadedModel()
+    {
+        $post = Post::with('author.posts')->first();
+
         return $post;
     }
 

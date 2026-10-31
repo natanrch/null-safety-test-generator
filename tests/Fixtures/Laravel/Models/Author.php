@@ -14,6 +14,10 @@ class Author extends Model
 
     protected $guarded = [];
 
+    protected $appends = [
+        'profile_label',
+    ];
+
     protected static function newFactory(): AuthorFactory
     {
         return AuthorFactory::new();
@@ -27,5 +31,10 @@ class Author extends Model
     public function posts(): HasMany
     {
         return $this->hasMany(Post::class);
+    }
+
+    public function getProfileLabelAttribute(): string
+    {
+        return $this->profile->name;
     }
 }
