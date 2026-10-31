@@ -3,6 +3,9 @@
 namespace Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers;
 
 use Illuminate\Http\Request;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Data\ArrayablePostData;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Data\PostData;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Data\SerializablePostData;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\VisibleSerializedPost;
@@ -32,6 +35,30 @@ class JsonPostController
         return [
             'profile' => $post->author->profile->name,
         ];
+    }
+
+    public function dto(Post $post)
+    {
+        return response()->json(PostData::from($post));
+    }
+
+    public function jsonSerializable(Post $post)
+    {
+        return response()->json(
+            new SerializablePostData($post)
+        );
+    }
+
+    public function arrayable(Post $post)
+    {
+        $data = new ArrayablePostData($post);
+
+        return response()->json($data);
+    }
+
+    public function directArrayable(Post $post): ArrayablePostData
+    {
+        return new ArrayablePostData($post);
     }
 
     public function assignedPayload(Post $post)

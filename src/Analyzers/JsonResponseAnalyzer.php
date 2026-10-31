@@ -2,9 +2,11 @@
 
 namespace Natan\NullSafetyTestGenerator\Analyzers;
 
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
+use JsonSerializable;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
@@ -15,6 +17,7 @@ use PhpParser\ParserFactory;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
+use ReflectionProperty;
 use Throwable;
 
 class JsonResponseAnalyzer
@@ -174,7 +177,8 @@ class JsonResponseAnalyzer
             $payload = $this->jsonPayload(
                 $expression,
                 $aliases,
-                $expressions
+                $expressions,
+                $className
             );
 
             if ($payload !== null) {
@@ -198,7 +202,8 @@ class JsonResponseAnalyzer
                     $payloadExpression,
                     $aliases,
                     $methodNode,
-                    $accesses
+                    $accesses,
+                    $className
                 );
 
                 if ($payload['resource'] !== null) {
@@ -250,7 +255,8 @@ class JsonResponseAnalyzer
     private function jsonPayload(
         Node\Expr $expression,
         array $aliases,
-        array $expressions = []
+        array $expressions = [],
+        ?string $currentClass = null
     ): ?array
     {
         if (! ($expression instanceof Node\Expr\Variable
@@ -292,8 +298,17 @@ class JsonResponseAnalyzer
                 )
                 : null;
 
-            return $resource !== null && $alias !== null
-                ? $this->payload($expression, $resource, $alias)
+            if ($resource !== null && $alias !== null) {
+                return $this->payload($expression, $resource, $alias);
+            }
+
+            $objectClass = $this->expressionClass(
+                $expression->class,
+                $currentClass
+            );
+
+            return $objectClass !== null
+                ? $this->payload($expression)
                 : null;
         }
 
@@ -641,7 +656,8 @@ class JsonResponseAnalyzer
         Node\Expr $expression,
         array $aliases,
         Node\Stmt\ClassMethod $methodNode,
-        array &$accesses
+        array &$accesses,
+        string $currentClass
     ): void {
         $serialized = [];
 
@@ -688,6 +704,272 @@ class JsonResponseAnalyzer
                 $visited
             );
         }
+
+        $this->analyzeSerializedObjects(
+            $expression,
+            $currentClass,
+            $aliases,
+            $accesses,
+            $visited
+        );
+    }
+
+    private function analyzeSerializedObjects(
+        Node\Expr $expression,
+        string $currentClass,
+        array $aliases,
+        array &$accesses,
+        array &$visited
+    ): void {
+        foreach ((new NodeFinder())->findInstanceOf(
+            [$expression],
+            Node\Expr\New_::class
+        ) as $new) {
+            $className = $this->expressionClass(
+                $new->class,
+                $currentClass
+            );
+
+            if ($className === null
+                || is_subclass_of($className, Model::class)
+                || is_subclass_of($className, JsonResource::class)) {
+                continue;
+            }
+
+            $this->analyzeSerializedObject(
+                $className,
+                $new,
+                $aliases,
+                $accesses,
+                $visited
+            );
+        }
+    }
+
+    private function analyzeSerializedObject(
+        string $className,
+        Node\Expr\New_ $new,
+        array $callerAliases,
+        array &$accesses,
+        array &$visited
+    ): void {
+        $visitKey = $className . ':' . $new->getStartFilePos()
+            . ':' . serialize($callerAliases);
+
+        if (isset($visited[$visitKey])) {
+            return;
+        }
+
+        $visited[$visitKey] = true;
+        $parameterAliases = [];
+        $propertyAliases = [];
+
+        try {
+            $class = new ReflectionClass($className);
+            $constructor = $class->getConstructor();
+        } catch (Throwable) {
+            return;
+        }
+
+        if ($constructor !== null) {
+            foreach ($constructor->getParameters() as $index => $parameter) {
+                $argument = $new->args[$index]->value ?? null;
+
+                foreach ($new->args as $candidate) {
+                    if ($candidate->name?->toString()
+                        === $parameter->getName()) {
+                        $argument = $candidate->value;
+                        break;
+                    }
+                }
+
+                if (! $argument instanceof Node\Expr) {
+                    continue;
+                }
+
+                $tracked = $this->trackedExpression(
+                    $argument,
+                    $callerAliases
+                );
+
+                if ($tracked !== null) {
+                    $parameterAliases[$parameter->getName()] = $tracked;
+
+                    if ($parameter->isPromoted()
+                        && $this->isModelParameter($parameter)) {
+                        $propertyAliases[$parameter->getName()] = $tracked;
+                    }
+                }
+            }
+
+            $this->analyzeObjectConstructor(
+                $constructor,
+                $parameterAliases,
+                $propertyAliases,
+                $accesses
+            );
+        }
+
+        $serializationMethod = match (true) {
+            $class->implementsInterface(JsonSerializable::class)
+                && $class->hasMethod('jsonSerialize') => 'jsonSerialize',
+            $class->implementsInterface(Arrayable::class)
+                && $class->hasMethod('toArray') => 'toArray',
+            $class->hasMethod('toArray') => 'toArray',
+            default => null,
+        };
+
+        if ($serializationMethod !== null) {
+            $this->analyzeObjectSerializationMethod(
+                $class->getMethod($serializationMethod),
+                $propertyAliases,
+                $accesses
+            );
+
+            return;
+        }
+
+        foreach ($class->getProperties(ReflectionProperty::IS_PUBLIC)
+            as $property) {
+            $alias = $propertyAliases[$property->getName()] ?? null;
+
+            if ($alias !== null) {
+                $this->analyzeSerializedModel(
+                    $alias,
+                    [],
+                    $accesses,
+                    $visited
+                );
+            }
+        }
+    }
+
+    private function analyzeObjectConstructor(
+        ReflectionMethod $constructor,
+        array $parameterAliases,
+        array &$propertyAliases,
+        array &$accesses
+    ): void {
+        $node = $this->parseMethod($constructor);
+
+        if ($node === null) {
+            return;
+        }
+
+        $modelParameters = [];
+
+        foreach ($constructor->getParameters() as $parameter) {
+            if ($this->isModelParameter($parameter)) {
+                $modelParameters[$parameter->getName()] = true;
+            }
+        }
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $node->stmts ?? [],
+            Node\Expr\Assign::class
+        ) as $assignment) {
+            if ($assignment->var instanceof Node\Expr\PropertyFetch
+                && $assignment->var->var instanceof Node\Expr\Variable
+                && $assignment->var->var->name === 'this'
+                && $assignment->var->name instanceof Node\Identifier
+                && $assignment->expr instanceof Node\Expr\Variable
+                && is_string($assignment->expr->name)
+                && isset($parameterAliases[$assignment->expr->name])
+                && isset($modelParameters[$assignment->expr->name])) {
+                $propertyAliases[$assignment->var->name->toString()]
+                    = $parameterAliases[$assignment->expr->name];
+            }
+        }
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $node->stmts ?? [],
+            Node\Expr\PropertyFetch::class
+        ) as $property) {
+            $parent = $property->getAttribute('parent');
+
+            if ($parent instanceof Node\Expr\PropertyFetch) {
+                continue;
+            }
+
+            $access = $this->propertyAccess(
+                $property,
+                $parameterAliases
+            );
+
+            if ($access !== null) {
+                $this->addAccess(
+                    $access,
+                    $this->usage($property),
+                    $accesses
+                );
+            }
+        }
+    }
+
+    private function isModelParameter(mixed $parameter): bool
+    {
+        if (! $parameter instanceof \ReflectionParameter) {
+            return false;
+        }
+
+        $type = $parameter->getType();
+
+        return $type instanceof ReflectionNamedType
+            && ! $type->isBuiltin()
+            && is_subclass_of($type->getName(), Model::class);
+    }
+
+    private function analyzeObjectSerializationMethod(
+        ReflectionMethod $method,
+        array $propertyAliases,
+        array &$accesses
+    ): void {
+        $node = $this->parseMethod($method);
+
+        if ($node === null) {
+            return;
+        }
+
+        $aliases = [];
+
+        foreach ($propertyAliases as $property => $alias) {
+            $aliases['this->' . $property] = $alias;
+        }
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $node->stmts ?? [],
+            Node\Stmt\Return_::class
+        ) as $return) {
+            if ($return->expr instanceof Node\Expr) {
+                $this->collectExpression(
+                    $return->expr,
+                    $aliases,
+                    $accesses
+                );
+            }
+        }
+    }
+
+    private function expressionClass(
+        Node\Name|Node\Expr $class,
+        ?string $currentClass
+    ): ?string {
+        if (! $class instanceof Node\Name) {
+            return null;
+        }
+
+        $name = $class->toString();
+        $resolved = match (strtolower($name)) {
+            'self', 'static' => $currentClass,
+            'parent' => $currentClass !== null
+                ? (get_parent_class($currentClass) ?: null)
+                : null,
+            default => $name,
+        };
+
+        return is_string($resolved) && class_exists($resolved)
+            ? $resolved
+            : null;
     }
 
     private function serializedModelAlias(
@@ -1179,16 +1461,26 @@ class JsonResponseAnalyzer
             $current = $current->var;
         }
 
-        if (
-            $current instanceof Node\Expr\NullsafePropertyFetch
+        if ($current instanceof Node\Expr\NullsafePropertyFetch
             || ! $current instanceof Node\Expr\Variable
-            || ! is_string($current->name)
-            || ! isset($aliases[$current->name])
-        ) {
+            || ! is_string($current->name)) {
             return null;
         }
 
-        $alias = $aliases[$current->name];
+        $aliasKey = $current->name;
+
+        if ($aliasKey === 'this'
+            && isset($properties[0]['name'])
+            && isset($aliases['this->' . $properties[0]['name']])) {
+            $aliasKey = 'this->' . $properties[0]['name'];
+            array_shift($properties);
+        }
+
+        if (! isset($aliases[$aliasKey])) {
+            return null;
+        }
+
+        $alias = $aliases[$aliasKey];
 
         $access = [
             'root' => $alias['root'],
