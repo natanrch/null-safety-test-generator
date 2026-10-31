@@ -7,6 +7,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\NestedPostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostResource;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostWithNestedCollectionResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\SafePostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Services\JsonPayloadService;
 
@@ -129,6 +130,11 @@ class JsonPostController
         return new PostResource($post);
     }
 
+    public function resourceMake(Post $post): PostResource
+    {
+        return PostResource::make($post);
+    }
+
     public function resourceCollection()
     {
         $posts = Post::all();
@@ -139,6 +145,12 @@ class JsonPostController
     public function nestedResource(Post $post): NestedPostResource
     {
         return new NestedPostResource($post);
+    }
+
+    public function nestedResourceCollection(
+        Post $post
+    ): PostWithNestedCollectionResource {
+        return PostWithNestedCollectionResource::make($post);
     }
 
     public function safeResource(Post $post): SafePostResource

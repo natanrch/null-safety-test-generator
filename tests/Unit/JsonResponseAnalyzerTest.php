@@ -95,6 +95,14 @@ class JsonResponseAnalyzerTest extends TestCase
         );
     }
 
+    public function test_it_analyzes_a_json_resource_created_with_make(): void
+    {
+        $this->assertContains(
+            ['author', 'name'],
+            $this->chains('resourceMake')
+        );
+    }
+
     public function test_it_analyzes_a_resource_collection(): void
     {
         $result = $this->analyzer()->analyze(
@@ -117,6 +125,17 @@ class JsonResponseAnalyzerTest extends TestCase
         $this->assertContains(
             ['author', 'profile', 'name'],
             $this->chains('nestedResource')
+        );
+    }
+
+    public function test_it_analyzes_a_resource_collection_nested_in_another_resource(): void
+    {
+        $chains = $this->chains('nestedResourceCollection');
+
+        $this->assertContains(['author', 'posts'], $chains);
+        $this->assertContains(
+            ['author', 'posts', 'author', 'name'],
+            $chains
         );
     }
 

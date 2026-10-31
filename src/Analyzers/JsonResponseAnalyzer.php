@@ -292,7 +292,11 @@ class JsonResponseAnalyzer
         if (
             $expression instanceof Node\Expr\StaticCall
             && $expression->name instanceof Node\Identifier
-            && $expression->name->toString() === 'collection'
+            && in_array(
+                $expression->name->toString(),
+                ['make', 'collection'],
+                true
+            )
             && isset($expression->args[0])
         ) {
             $resource = $this->resourceClass($expression->class);
@@ -302,7 +306,9 @@ class JsonResponseAnalyzer
             );
 
             if ($resource !== null && $alias !== null) {
-                $alias['type'] = 'collection';
+                if ($expression->name->toString() === 'collection') {
+                    $alias['type'] = 'collection';
+                }
 
                 return $this->payload($expression, $resource, $alias);
             }
@@ -666,6 +672,38 @@ class JsonResponseAnalyzer
                         $aliases
                     )
                     : null;
+
+                if ($nestedClass !== null && $nestedAlias !== null) {
+                    $this->analyzeResource(
+                        $nestedClass,
+                        $nestedAlias,
+                        $accesses,
+                        $visited
+                    );
+                }
+            }
+
+            foreach ((new NodeFinder())->findInstanceOf(
+                [$return->expr],
+                Node\Expr\StaticCall::class
+            ) as $staticCall) {
+                if (! $staticCall->name instanceof Node\Identifier
+                    || ! in_array(
+                        $staticCall->name->toString(),
+                        ['make', 'collection'],
+                        true
+                    )
+                    || ! isset($staticCall->args[0])) {
+                    continue;
+                }
+
+                $nestedClass = $this->resourceClass(
+                    $staticCall->class
+                );
+                $nestedAlias = $this->trackedExpression(
+                    $staticCall->args[0]->value,
+                    $aliases
+                );
 
                 if ($nestedClass !== null && $nestedAlias !== null) {
                     $this->analyzeResource(
