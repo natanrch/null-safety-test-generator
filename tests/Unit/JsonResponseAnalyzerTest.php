@@ -7,6 +7,7 @@ use Natan\NullSafetyTestGenerator\Analyzers\JsonResponseAnalyzer;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentAccessChainResolver;
 use Natan\NullSafetyTestGenerator\Resolvers\EloquentRelationshipResolver;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\JsonPostController;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class JsonResponseAnalyzerTest extends TestCase
@@ -25,6 +26,41 @@ class JsonResponseAnalyzerTest extends TestCase
             ['author', 'profile', 'name'],
             $this->chains('directArray')
         );
+    }
+
+    public function test_it_analyzes_a_payload_assigned_to_a_variable(): void
+    {
+        $this->assertContains(
+            ['author', 'profile', 'name'],
+            $this->chains('assignedPayload')
+        );
+    }
+
+    #[DataProvider('methodPayloads')]
+    public function test_it_analyzes_payloads_and_json_responses_returned_by_methods(
+        string $method
+    ): void {
+        $result = $this->analyzer()->analyze(
+            JsonPostController::class,
+            $method
+        );
+
+        $this->assertSame('json', $result['responseType'] ?? null);
+        $this->assertContains(
+            ['author', 'profile', 'name'],
+            $this->chains($method)
+        );
+    }
+
+    public static function methodPayloads(): iterable
+    {
+        yield 'controller helper payload' => ['helperPayload'];
+        yield 'service payload' => ['servicePayload'];
+        yield 'controller helper response' => ['helperResponse'];
+        yield 'service response' => ['serviceResponse'];
+        yield 'locally created service response' => [
+            'localServiceResponse',
+        ];
     }
 
     public function test_it_detects_a_direct_model_response(): void

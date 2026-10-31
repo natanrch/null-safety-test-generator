@@ -8,9 +8,15 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\NestedPostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\SafePostResource;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Services\JsonPayloadService;
 
 class JsonPostController
 {
+    public function __construct(
+        private JsonPayloadService $payloadService
+    ) {
+    }
+
     public function jsonResponse(Post $post)
     {
         return response()->json([
@@ -23,6 +29,44 @@ class JsonPostController
         return [
             'profile' => $post->author->profile->name,
         ];
+    }
+
+    public function assignedPayload(Post $post)
+    {
+        $payload = [
+            'profile' => $post->author->profile->name,
+        ];
+
+        return response()->json($payload);
+    }
+
+    public function helperPayload(Post $post)
+    {
+        return response()->json($this->makePayload($post));
+    }
+
+    public function servicePayload(Post $post)
+    {
+        return response()->json(
+            $this->payloadService->payload($post)
+        );
+    }
+
+    public function helperResponse(Post $post)
+    {
+        return $this->makeResponse($post);
+    }
+
+    public function serviceResponse(Post $post)
+    {
+        return $this->payloadService->response($post);
+    }
+
+    public function localServiceResponse(Post $post)
+    {
+        $service = new JsonPayloadService();
+
+        return $service->response($post);
     }
 
     public function directModel(Post $post)
@@ -111,5 +155,17 @@ class JsonPostController
         return response()->json([
             'profile' => $post->author->profile->name,
         ]);
+    }
+
+    private function makePayload(Post $post): array
+    {
+        return [
+            'profile' => $post->author->profile->name,
+        ];
+    }
+
+    private function makeResponse(Post $post)
+    {
+        return response()->json($this->makePayload($post));
     }
 }

@@ -10,7 +10,9 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\NodeVisitor\ParentConnectingVisitor;
 use PhpParser\ParserFactory;
+use ReflectionClass;
 use ReflectionMethod;
+use ReflectionNamedType;
 use Throwable;
 
 class JsonResponseAnalyzer
@@ -37,43 +39,15 @@ class JsonResponseAnalyzer
         $aliases = $this->controllerAliases($controllerClass, $methodName);
         $accesses = [];
         $visitedResources = [];
-        $jsonFound = false;
-
-        foreach ((new NodeFinder())->findInstanceOf(
-            $methodNode->stmts ?? [],
-            Node\Stmt\Return_::class
-        ) as $return) {
-            if (! $return->expr instanceof Node\Expr) {
-                continue;
-            }
-
-            $payload = $this->jsonPayload($return->expr, $aliases);
-
-            if ($payload === null) {
-                continue;
-            }
-
-            $jsonFound = true;
-            $this->collectExpression(
-                $payload['expression'],
-                $aliases,
-                $accesses
-            );
-
-            if ($payload['resource'] !== null) {
-                $this->addAccess(
-                    $payload['resourceAlias'],
-                    null,
-                    $accesses
-                );
-                $this->analyzeResource(
-                    $payload['resource'],
-                    $payload['resourceAlias'],
-                    $accesses,
-                    $visitedResources
-                );
-            }
-        }
+        $visitedMethods = [];
+        $jsonFound = $this->analyzeMethodReturns(
+            $controllerClass,
+            $methodName,
+            $aliases,
+            $accesses,
+            $visitedResources,
+            $visitedMethods
+        );
 
         if (! $jsonFound) {
             return [];
@@ -143,8 +117,143 @@ class JsonResponseAnalyzer
         return $aliases;
     }
 
-    private function jsonPayload(Node\Expr $expression, array $aliases): ?array
+    private function analyzeMethodReturns(
+        string $className,
+        string $methodName,
+        array $aliases,
+        array &$accesses,
+        array &$visitedResources,
+        array &$visitedMethods
+    ): bool {
+        $visitKey = $className . '::' . $methodName . ':'
+            . serialize($aliases);
+
+        if (isset($visitedMethods[$visitKey])) {
+            return false;
+        }
+
+        $visitedMethods[$visitKey] = true;
+
+        try {
+            $method = new ReflectionMethod($className, $methodName);
+
+            if (! $this->isApplicationMethod($method)) {
+                return false;
+            }
+
+            $methodNode = $this->parseMethod($method);
+        } catch (Throwable) {
+            return false;
+        }
+
+        if ($methodNode === null) {
+            return false;
+        }
+
+        $jsonFound = false;
+        $objectVariables = $this->objectVariables(
+            $method,
+            $methodNode
+        );
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $methodNode->stmts ?? [],
+            Node\Stmt\Return_::class
+        ) as $return) {
+            if (! $return->expr instanceof Node\Expr) {
+                continue;
+            }
+
+            $expressions = $this->assignedExpressionsBefore(
+                $methodNode,
+                $return
+            );
+            $expression = $return->expr;
+            $payload = $this->jsonPayload(
+                $expression,
+                $aliases,
+                $expressions
+            );
+
+            if ($payload !== null) {
+                $jsonFound = true;
+                $payloadExpression = $payload['expression'];
+
+                if (! ($payloadExpression instanceof Node\Expr\Variable
+                    && is_string($payloadExpression->name)
+                    && isset($aliases[$payloadExpression->name]))) {
+                    $payloadExpression = $this->resolveAssignedExpression(
+                        $payloadExpression,
+                        $expressions
+                    );
+                }
+                $this->collectExpression(
+                    $payloadExpression,
+                    $aliases,
+                    $accesses
+                );
+
+                if ($payload['resource'] !== null) {
+                    $this->addAccess(
+                        $payload['resourceAlias'],
+                        null,
+                        $accesses
+                    );
+                    $this->analyzeResource(
+                        $payload['resource'],
+                        $payload['resourceAlias'],
+                        $accesses,
+                        $visitedResources
+                    );
+                }
+
+                $this->analyzeReturnedCalls(
+                    $payloadExpression,
+                    $className,
+                    $objectVariables,
+                    $aliases,
+                    $accesses,
+                    $visitedResources,
+                    $visitedMethods
+                );
+
+                continue;
+            }
+
+            if ($this->analyzeReturnedCalls(
+                $this->resolveAssignedExpression(
+                    $expression,
+                    $expressions
+                ),
+                $className,
+                $objectVariables,
+                $aliases,
+                $accesses,
+                $visitedResources,
+                $visitedMethods
+            )) {
+                $jsonFound = true;
+            }
+        }
+
+        return $jsonFound;
+    }
+
+    private function jsonPayload(
+        Node\Expr $expression,
+        array $aliases,
+        array $expressions = []
+    ): ?array
     {
+        if (! ($expression instanceof Node\Expr\Variable
+            && is_string($expression->name)
+            && isset($aliases[$expression->name]))) {
+            $expression = $this->resolveAssignedExpression(
+                $expression,
+                $expressions
+            );
+        }
+
         if ($expression instanceof Node\Expr\Array_) {
             return $this->payload($expression);
         }
@@ -200,6 +309,261 @@ class JsonResponseAnalyzer
         }
 
         return null;
+    }
+
+    private function assignedExpressionsBefore(
+        Node\Stmt\ClassMethod $method,
+        Node\Stmt\Return_ $return
+    ): array {
+        $expressions = [];
+        $assignments = (new NodeFinder())->findInstanceOf(
+            $method->stmts ?? [],
+            Node\Expr\Assign::class
+        );
+
+        usort(
+            $assignments,
+            static fn (Node\Expr\Assign $left, Node\Expr\Assign $right): int =>
+                $left->getStartFilePos() <=> $right->getStartFilePos()
+        );
+
+        foreach ($assignments as $assignment) {
+            if ($assignment->getStartFilePos() >= $return->getStartFilePos()) {
+                break;
+            }
+
+            if ($assignment->var instanceof Node\Expr\Variable
+                && is_string($assignment->var->name)) {
+                $expressions[$assignment->var->name] = $assignment->expr;
+            }
+        }
+
+        return $expressions;
+    }
+
+    private function resolveAssignedExpression(
+        Node\Expr $expression,
+        array $expressions,
+        array $visited = []
+    ): Node\Expr {
+        if (! $expression instanceof Node\Expr\Variable
+            || ! is_string($expression->name)
+            || ! isset($expressions[$expression->name])
+            || isset($visited[$expression->name])) {
+            return $expression;
+        }
+
+        $visited[$expression->name] = true;
+
+        return $this->resolveAssignedExpression(
+            $expressions[$expression->name],
+            $expressions,
+            $visited
+        );
+    }
+
+    private function analyzeReturnedCalls(
+        Node\Expr $expression,
+        string $currentClass,
+        array $objectVariables,
+        array $aliases,
+        array &$accesses,
+        array &$visitedResources,
+        array &$visitedMethods
+    ): bool {
+        $jsonFound = false;
+        $calls = [
+            ...(new NodeFinder())->findInstanceOf(
+                [$expression],
+                Node\Expr\MethodCall::class
+            ),
+            ...(new NodeFinder())->findInstanceOf(
+                [$expression],
+                Node\Expr\StaticCall::class
+            ),
+        ];
+
+        foreach ($calls as $call) {
+            $target = $this->calledMethod(
+                $call,
+                $currentClass,
+                $objectVariables
+            );
+
+            if ($target === null) {
+                continue;
+            }
+
+            [$targetClass, $targetMethod] = $target;
+            $calledAliases = $this->calledAliases(
+                $call,
+                $targetClass,
+                $targetMethod,
+                $aliases
+            );
+
+            if ($this->analyzeMethodReturns(
+                $targetClass,
+                $targetMethod,
+                $calledAliases,
+                $accesses,
+                $visitedResources,
+                $visitedMethods
+            )) {
+                $jsonFound = true;
+            }
+        }
+
+        return $jsonFound;
+    }
+
+    private function calledMethod(
+        Node\Expr\MethodCall|Node\Expr\StaticCall $call,
+        string $currentClass,
+        array $objectVariables
+    ): ?array {
+        if (! $call->name instanceof Node\Identifier) {
+            return null;
+        }
+
+        $targetClass = null;
+
+        if ($call instanceof Node\Expr\StaticCall
+            && $call->class instanceof Node\Name) {
+            $targetClass = match (strtolower($call->class->toString())) {
+                'self', 'static' => $currentClass,
+                'parent' => get_parent_class($currentClass) ?: null,
+                default => $call->class->toString(),
+            };
+        }
+
+        if ($call instanceof Node\Expr\MethodCall) {
+            if ($call->var instanceof Node\Expr\Variable
+                && $call->var->name === 'this') {
+                $targetClass = $currentClass;
+            } elseif ($call->var instanceof Node\Expr\Variable
+                && is_string($call->var->name)) {
+                $targetClass = $objectVariables[$call->var->name]
+                    ?? null;
+            } elseif ($call->var instanceof Node\Expr\PropertyFetch
+                && $call->var->var instanceof Node\Expr\Variable
+                && $call->var->var->name === 'this'
+                && $call->var->name instanceof Node\Identifier) {
+                $targetClass = $this->objectProperties($currentClass)[
+                    $call->var->name->toString()
+                ] ?? null;
+            } elseif ($call->var instanceof Node\Expr\New_
+                && $call->var->class instanceof Node\Name) {
+                $targetClass = $call->var->class->toString();
+            }
+        }
+
+        if (! is_string($targetClass)
+            || ! method_exists($targetClass, $call->name->toString())) {
+            return null;
+        }
+
+        return [$targetClass, $call->name->toString()];
+    }
+
+    private function objectVariables(
+        ReflectionMethod $method,
+        Node\Stmt\ClassMethod $methodNode
+    ): array {
+        $variables = [];
+
+        foreach ($method->getParameters() as $parameter) {
+            $type = $parameter->getType();
+
+            if ($type instanceof ReflectionNamedType
+                && ! $type->isBuiltin()) {
+                $variables[$parameter->getName()] = $type->getName();
+            }
+        }
+
+        foreach ((new NodeFinder())->findInstanceOf(
+            $methodNode->stmts ?? [],
+            Node\Expr\Assign::class
+        ) as $assignment) {
+            if ($assignment->var instanceof Node\Expr\Variable
+                && is_string($assignment->var->name)
+                && $assignment->expr instanceof Node\Expr\New_
+                && $assignment->expr->class instanceof Node\Name) {
+                $variables[$assignment->var->name]
+                    = $assignment->expr->class->toString();
+            }
+        }
+
+        return $variables;
+    }
+
+    private function calledAliases(
+        Node\Expr\MethodCall|Node\Expr\StaticCall $call,
+        string $className,
+        string $methodName,
+        array $aliases
+    ): array {
+        try {
+            $method = new ReflectionMethod($className, $methodName);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $calledAliases = [];
+
+        foreach ($method->getParameters() as $index => $parameter) {
+            $argument = $call->args[$index]->value ?? null;
+
+            foreach ($call->args as $candidate) {
+                if ($candidate->name?->toString()
+                    === $parameter->getName()) {
+                    $argument = $candidate->value;
+                    break;
+                }
+            }
+
+            if (! $argument instanceof Node\Expr) {
+                continue;
+            }
+
+            $tracked = $this->trackedExpression($argument, $aliases);
+
+            if ($tracked !== null) {
+                $calledAliases[$parameter->getName()] = $tracked;
+            }
+        }
+
+        return $calledAliases;
+    }
+
+    private function objectProperties(string $className): array
+    {
+        try {
+            $class = new ReflectionClass($className);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $properties = [];
+
+        foreach ($class->getProperties() as $property) {
+            $type = $property->getType();
+
+            if ($type instanceof ReflectionNamedType
+                && ! $type->isBuiltin()) {
+                $properties[$property->getName()] = $type->getName();
+            }
+        }
+
+        return $properties;
+    }
+
+    private function isApplicationMethod(ReflectionMethod $method): bool
+    {
+        $file = $method->getFileName();
+
+        return $file !== false
+            && ! str_contains(str_replace('\\', '/', $file), '/vendor/');
     }
 
     private function payload(
