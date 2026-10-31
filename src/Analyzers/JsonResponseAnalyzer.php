@@ -615,6 +615,11 @@ class JsonResponseAnalyzer
             $access = $this->propertyAccess($propertyFetch, $aliases);
 
             if ($access !== null) {
+                $access = $this->withConditionalProtection(
+                    $propertyFetch,
+                    $access,
+                    $aliases
+                );
                 $this->addAccess(
                     $access,
                     $this->usage($propertyFetch),
@@ -736,6 +741,8 @@ class JsonResponseAnalyzer
             $access['type'],
             $access['accesses'],
             $usage,
+            $access['protectedAccessCount'] ?? null,
+            $access['protectedAccessIndices'] ?? [],
         ])] = $access;
     }
 
@@ -743,6 +750,15 @@ class JsonResponseAnalyzer
         Node\Expr $expression,
         array $aliases
     ): ?array {
+        $conditional = $this->conditionalHelperAlias(
+            $expression,
+            $aliases
+        );
+
+        if ($conditional !== null) {
+            return $conditional;
+        }
+
         if (
             $expression instanceof Node\Expr\Variable
             && is_string($expression->name)
@@ -794,7 +810,181 @@ class JsonResponseAnalyzer
             $access['input'] = $alias['input'];
         }
 
+        if (isset($alias['protectedAccessCount'])) {
+            $access['protectedAccessCount']
+                = $alias['protectedAccessCount'];
+        }
+
+        if (isset($alias['protectedAccessIndices'])) {
+            $access['protectedAccessIndices']
+                = $alias['protectedAccessIndices'];
+        }
+
         return $access;
+    }
+
+    private function conditionalHelperAlias(
+        Node\Expr $expression,
+        array $aliases
+    ): ?array {
+        if (! $expression instanceof Node\Expr\MethodCall
+            || ! $expression->name instanceof Node\Identifier) {
+            return null;
+        }
+
+        $helper = $expression->name->toString();
+
+        if ($helper === 'whenLoaded'
+            && ($expression->args[0]->value ?? null)
+                instanceof Node\Scalar\String_) {
+            $base = $this->trackedExpression(
+                $expression->var,
+                $aliases
+            );
+
+            if ($base === null) {
+                return null;
+            }
+
+            $base['accesses'][] = [
+                'type' => 'property',
+                'name' => $expression->args[0]->value->value,
+            ];
+            $base['protectedAccessCount'] = max(
+                $base['protectedAccessCount'] ?? 0,
+                count($base['accesses'])
+            );
+
+            return $base;
+        }
+
+        if ($helper === 'whenNotNull' && isset($expression->args[0])) {
+            $alias = $this->trackedExpression(
+                $expression->args[0]->value,
+                $aliases
+            );
+
+            if ($alias !== null) {
+                $alias['protectedAccessCount'] = max(
+                    $alias['protectedAccessCount'] ?? 0,
+                    count($alias['accesses'])
+                );
+            }
+
+            return $alias;
+        }
+
+        return null;
+    }
+
+    private function withConditionalProtection(
+        Node\Expr\PropertyFetch $property,
+        array $access,
+        array $aliases
+    ): array {
+        $child = $property;
+
+        while (($parent = $child->getAttribute('parent')) instanceof Node) {
+            if ($parent instanceof Node\Arg) {
+                $call = $parent->getAttribute('parent');
+
+                if ($call instanceof Node\Expr\MethodCall
+                    && $call->name instanceof Node\Identifier) {
+                    $argumentIndex = array_search(
+                        $parent,
+                        $call->args,
+                        true
+                    );
+                    $helper = $call->name->toString();
+
+                    if (in_array(
+                        $helper,
+                        ['when', 'mergeWhen'],
+                        true
+                    )) {
+                        if ($argumentIndex === 0) {
+                            $access['protectedAccessIndices'][]
+                                = count($access['accesses']) - 1;
+                        } elseif (is_int($argumentIndex)
+                            && $argumentIndex > 0
+                            && isset($call->args[0])) {
+                            $access = $this->withConditionGuards(
+                                $access,
+                                $call->args[0]->value,
+                                $aliases,
+                                $argumentIndex === 1
+                            );
+                        }
+                    }
+
+                    if ($helper === 'whenNotNull'
+                        && $argumentIndex === 0) {
+                        $access['protectedAccessIndices'][]
+                            = count($access['accesses']) - 1;
+                    }
+                }
+            }
+
+            $child = $parent;
+        }
+
+        if (isset($access['protectedAccessIndices'])) {
+            $access['protectedAccessIndices'] = array_values(
+                array_unique($access['protectedAccessIndices'])
+            );
+        }
+
+        return $access;
+    }
+
+    private function withConditionGuards(
+        array $access,
+        Node\Expr $condition,
+        array $aliases,
+        bool $truthy
+    ): array {
+        $protected = $access['protectedAccessCount'] ?? 0;
+
+        foreach ((new ConditionGuardAnalyzer())->analyze(
+            $condition,
+            $truthy
+        ) as $guardExpression) {
+            $guard = $this->trackedExpression(
+                $guardExpression,
+                $aliases
+            );
+
+            if ($guard !== null
+                && $this->isAccessPrefix($guard, $access)) {
+                $protected = max(
+                    $protected,
+                    count($guard['accesses'])
+                );
+            }
+        }
+
+        if ($protected > 0) {
+            $access['protectedAccessCount'] = $protected;
+        }
+
+        return $access;
+    }
+
+    private function isAccessPrefix(array $prefix, array $access): bool
+    {
+        if (($prefix['root'] ?? null) !== ($access['root'] ?? null)) {
+            return false;
+        }
+
+        $prefixNames = array_column($prefix['accesses'] ?? [], 'name');
+        $accessNames = array_column($access['accesses'] ?? [], 'name');
+
+        return $prefixNames !== []
+            && $prefixNames === array_slice(
+                $accessNames,
+                0,
+                count($prefixNames)
+            );
     }
 
     private function usage(Node\Expr\PropertyFetch $property): ?string
