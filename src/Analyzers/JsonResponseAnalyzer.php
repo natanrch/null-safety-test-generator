@@ -18,6 +18,7 @@ use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionProperty;
+use Symfony\Component\HttpFoundation\StreamedJsonResponse;
 use Throwable;
 
 class JsonResponseAnalyzer
@@ -275,6 +276,25 @@ class JsonResponseAnalyzer
         if (
             $expression instanceof Node\Expr\MethodCall
             && $expression->name instanceof Node\Identifier
+            && $expression->name->toString() === 'streamJson'
+            && isset($expression->args[0])
+        ) {
+            return $this->payload($expression->args[0]->value);
+        }
+
+        if (
+            $expression instanceof Node\Expr\MethodCall
+            && $expression->name instanceof Node\Identifier
+            && $expression->name->toString() === 'stream'
+            && isset($expression->args[0])
+            && $this->isJsonStream($expression)
+        ) {
+            return $this->payload($expression->args[0]->value);
+        }
+
+        if (
+            $expression instanceof Node\Expr\MethodCall
+            && $expression->name instanceof Node\Identifier
             && $expression->name->toString() === 'json'
             && isset($expression->args[0])
         ) {
@@ -290,6 +310,19 @@ class JsonResponseAnalyzer
         }
 
         if ($expression instanceof Node\Expr\New_) {
+            $objectClass = $this->expressionClass(
+                $expression->class,
+                $currentClass
+            );
+
+            if (
+                $objectClass !== null
+                && is_a($objectClass, StreamedJsonResponse::class, true)
+                && isset($expression->args[0])
+            ) {
+                return $this->payload($expression->args[0]->value);
+            }
+
             $resource = $this->resourceClass($expression->class);
             $alias = isset($expression->args[0])
                 ? $this->trackedExpression(
@@ -301,11 +334,6 @@ class JsonResponseAnalyzer
             if ($resource !== null && $alias !== null) {
                 return $this->payload($expression, $resource, $alias);
             }
-
-            $objectClass = $this->expressionClass(
-                $expression->class,
-                $currentClass
-            );
 
             return $objectClass !== null
                 ? $this->payload($expression)
@@ -338,6 +366,59 @@ class JsonResponseAnalyzer
         }
 
         return null;
+    }
+
+    private function isJsonStream(Node\Expr\MethodCall $stream): bool
+    {
+        $callback = $stream->args[0]->value ?? null;
+
+        if ($callback instanceof Node\Expr) {
+            foreach ((new NodeFinder())->findInstanceOf(
+                $callback,
+                Node\Expr\FuncCall::class
+            ) as $call) {
+                if (
+                    $call->name instanceof Node\Name
+                    && strtolower($call->name->toString()) === 'json_encode'
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        $headers = null;
+
+        foreach ($stream->args as $position => $argument) {
+            if (
+                ($argument->name instanceof Node\Identifier
+                    && $argument->name->toString() === 'headers')
+                || ($argument->name === null && $position === 2)
+            ) {
+                $headers = $argument->value;
+                break;
+            }
+        }
+
+        if (! $headers instanceof Node\Expr\Array_) {
+            return false;
+        }
+
+        foreach ($headers->items as $item) {
+            if (
+                ! $item instanceof Node\Expr\ArrayItem
+                || ! $item->key instanceof Node\Scalar\String_
+                || strtolower($item->key->value) !== 'content-type'
+                || ! $item->value instanceof Node\Scalar\String_
+            ) {
+                continue;
+            }
+
+            if (str_contains(strtolower($item->value->value), 'json')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function assignedExpressionsBefore(

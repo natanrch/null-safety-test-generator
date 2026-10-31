@@ -31,6 +31,10 @@ class ControllerMethodAnalyzer
         'paginate',
         'simplePaginate',
         'cursorPaginate',
+        'cursor',
+        'lazy',
+        'lazyById',
+        'orderedLazyById',
     ];
 
     public function getObjectClasses(

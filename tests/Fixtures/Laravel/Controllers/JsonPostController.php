@@ -15,6 +15,7 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\PostWithNestedCollectionResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Resources\SafePostResource;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Services\JsonPayloadService;
+use Symfony\Component\HttpFoundation\StreamedJsonResponse;
 
 class JsonPostController
 {
@@ -35,6 +36,56 @@ class JsonPostController
         return [
             'profile' => $post->author->profile->name,
         ];
+    }
+
+    public function streamJson(Post $post)
+    {
+        return response()->streamJson([
+            'post' => (function () use ($post): iterable {
+                yield [
+                    'author_name' =>
+                        $post->author->profile->name,
+                ];
+            })(),
+        ]);
+    }
+
+    public function streamedJsonCollection()
+    {
+        $posts = Post::cursor();
+
+        return response()->streamJson([
+            'posts' => $posts,
+        ]);
+    }
+
+    public function streamedResponse(Post $post)
+    {
+        return response()->stream(
+            static function () use ($post): void {
+                echo json_encode([
+                    'author_name' =>
+                        $post->author->profile->name,
+                ]);
+            },
+            headers: ['Content-Type' => 'application/json']
+        );
+    }
+
+    public function genericStream(Post $post)
+    {
+        return response()->stream(
+            static function () use ($post): void {
+                echo $post->author->profile->name;
+            }
+        );
+    }
+
+    public function streamedJsonResponse(Post $post)
+    {
+        return new StreamedJsonResponse([
+            'author_name' => $post->author->profile->name,
+        ]);
     }
 
     public function dto(Post $post)
