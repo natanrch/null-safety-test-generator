@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Natan\NullSafetyTestGenerator\Inspectors\DatabaseColumnInspector;
+use Natan\NullSafetyTestGenerator\Resolvers\EloquentModelClassResolver;
 use PhpParser\Node;
 use PhpParser\NodeFinder;
 use PhpParser\NodeTraverser;
@@ -20,10 +21,21 @@ class RequestValidationAnalyzer
 {
     private DatabaseColumnInspector $columnInspector;
 
-    public function __construct(?DatabaseColumnInspector $columnInspector = null)
-    {
+    private ValidationPayloadPlanner $payloadPlanner;
+
+    private EloquentModelClassResolver $modelResolver;
+
+    public function __construct(
+        ?DatabaseColumnInspector $columnInspector = null,
+        ?ValidationPayloadPlanner $payloadPlanner = null,
+        ?EloquentModelClassResolver $modelResolver = null
+    ) {
         $this->columnInspector = $columnInspector
             ?? new DatabaseColumnInspector();
+        $this->modelResolver = $modelResolver
+            ?? new EloquentModelClassResolver();
+        $this->payloadPlanner = $payloadPlanner
+            ?? new ValidationPayloadPlanner($this->modelResolver);
     }
 
     public function analyze(
@@ -84,10 +96,30 @@ class RequestValidationAnalyzer
             }
         }
 
+        $plan = $this->payloadPlanner->plan(
+            $fields,
+            $payload,
+            $this->modelParameterNames($method)
+        );
+        $payload = $plan['payload'];
         $result = [
             'fields' => $fields,
             'payload' => $payload,
         ];
+
+        if (($plan['valid'] ?? false) !== true) {
+            $result['payloadValid'] = false;
+            $result['payloadError'] = $plan['message']
+                ?? 'A valid request payload could not be generated.';
+        }
+
+        if (($plan['fixtures'] ?? []) !== []) {
+            $result['validationFixtures'] = $plan['fixtures'];
+        }
+
+        if (($plan['expressions'] ?? []) !== []) {
+            $result['payloadExpressions'] = $plan['expressions'];
+        }
 
         if ($methodNode !== null) {
             $dependencies = $this->existsDependencies(
@@ -126,7 +158,8 @@ class RequestValidationAnalyzer
                 continue;
             }
 
-            [$table, $column] = $exists;
+            $table = $exists['table'];
+            $column = $exists['column'];
             $loadedModel = $this->findLoadedModel(
                 $method,
                 $requestVariables,
@@ -162,6 +195,7 @@ class RequestValidationAnalyzer
                     ?? Str::camel(class_basename($modelClass)),
                 'accessedProperties' => $accessedProperties,
                 'nullableProperties' => $nullableProperties,
+                'constraints' => $exists['constraints'] ?? [],
             ];
         }
 
@@ -171,6 +205,16 @@ class RequestValidationAnalyzer
     private function existsRule(array $rules): ?array
     {
         foreach ($rules as $rule) {
+            if (
+                is_array($rule)
+                && ($rule['name'] ?? null) === 'exists'
+                && ($rule['supported'] ?? false) === true
+                && is_string($rule['table'] ?? null)
+                && is_string($rule['column'] ?? null)
+            ) {
+                return $rule;
+            }
+
             if (! is_string($rule) || ! str_starts_with($rule, 'exists:')) {
                 continue;
             }
@@ -180,7 +224,13 @@ class RequestValidationAnalyzer
             $column = trim($arguments[1] ?? 'id');
 
             if ($table !== '' && $column !== '') {
-                return [$table, $column];
+                return [
+                    'name' => 'exists',
+                    'table' => $table,
+                    'column' => $column,
+                    'constraints' => [],
+                    'supported' => true,
+                ];
             }
         }
 
@@ -284,27 +334,7 @@ class RequestValidationAnalyzer
 
     private function modelForTable(string $table): ?string
     {
-        foreach (get_declared_classes() as $className) {
-            if (! is_subclass_of($className, Model::class)) {
-                continue;
-            }
-
-            try {
-                if ((new $className())->getTable() === $table) {
-                    return $className;
-                }
-            } catch (Throwable) {
-                continue;
-            }
-        }
-
-        $conventionalClass = 'App\\Models\\'
-            . Str::studly(Str::singular($table));
-
-        return class_exists($conventionalClass)
-            && is_subclass_of($conventionalClass, Model::class)
-                ? $conventionalClass
-                : null;
+        return $this->modelResolver->resolveTable($table);
     }
 
     private function requestParameters(ReflectionMethod $method): array
@@ -335,6 +365,27 @@ class RequestValidationAnalyzer
         }
 
         return $parameters;
+    }
+
+    private function modelParameterNames(ReflectionMethod $method): array
+    {
+        $variables = [];
+
+        foreach ($method->getParameters() as $parameter) {
+            $type = $parameter->getType();
+
+            if (
+                ! $type instanceof ReflectionNamedType
+                || $type->isBuiltin()
+                || ! is_subclass_of($type->getName(), Model::class)
+            ) {
+                continue;
+            }
+
+            $variables[] = $parameter->getName();
+        }
+
+        return $variables;
     }
 
     private function formRequestRules(string $requestClass): array
@@ -473,15 +524,162 @@ class RequestValidationAnalyzer
                     $rules[] = 'in:' . implode(',', $values);
                 }
             }
+
+            if ($item?->value instanceof Node\Expr) {
+                $objectRule = $this->parseObjectRule($item->value);
+
+                if ($objectRule !== null) {
+                    $rules[] = $objectRule;
+                }
+            }
         }
 
         return $rules;
     }
 
+    private function parseObjectRule(Node\Expr $expression): ?array
+    {
+        $root = $expression;
+        $calls = [];
+
+        while ($root instanceof Node\Expr\MethodCall) {
+            $calls[] = $root;
+            $root = $root->var;
+        }
+
+        if (
+            ! $root instanceof Node\Expr\StaticCall
+            || ! $root->class instanceof Node\Name
+            || ! str_ends_with($root->class->toString(), '\\Rule')
+            || ! $root->name instanceof Node\Identifier
+            || $root->name->toString() !== 'exists'
+            || ! ($root->args[0]->value ?? null)
+                instanceof Node\Scalar\String_
+        ) {
+            return null;
+        }
+
+        $table = $root->args[0]->value->value;
+        $column = ($root->args[1]->value ?? null)
+            instanceof Node\Scalar\String_
+                ? $root->args[1]->value->value
+                : 'id';
+        $constraints = [];
+        $supported = true;
+
+        foreach (array_reverse($calls) as $call) {
+            if (
+                ! $call->name instanceof Node\Identifier
+                || $call->name->toString() !== 'where'
+            ) {
+                $supported = false;
+                continue;
+            }
+
+            $constraint = $this->parseExistsWhere($call->args);
+
+            if ($constraint === null) {
+                $supported = false;
+                continue;
+            }
+
+            $constraints[] = $constraint;
+        }
+
+        return [
+            'name' => 'exists',
+            'table' => $table,
+            'column' => $column,
+            'constraints' => $constraints,
+            'supported' => $supported,
+        ];
+    }
+
+    private function parseExistsWhere(array $arguments): ?array
+    {
+        if (! ($arguments[0]->value ?? null) instanceof Node\Scalar\String_) {
+            return null;
+        }
+
+        $column = $arguments[0]->value->value;
+        $valueIndex = 1;
+
+        if (count($arguments) >= 3) {
+            if (
+                ! $arguments[1]->value instanceof Node\Scalar\String_
+                || ! in_array(
+                    $arguments[1]->value->value,
+                    ['=', '=='],
+                    true
+                )
+            ) {
+                return null;
+            }
+
+            $valueIndex = 2;
+        }
+
+        $value = $arguments[$valueIndex]->value ?? null;
+        $source = $value instanceof Node\Expr
+            ? $this->constraintSource($value)
+            : null;
+
+        return $source === null
+            ? null
+            : ['column' => $column, 'source' => $source];
+    }
+
+    private function constraintSource(Node\Expr $expression): ?array
+    {
+        if ($expression instanceof Node\Scalar\String_
+            || $expression instanceof Node\Scalar\Int_
+            || $expression instanceof Node\Scalar\Float_) {
+            return ['type' => 'literal', 'value' => $expression->value];
+        }
+
+        if ($expression instanceof Node\Expr\ConstFetch) {
+            return match (strtolower($expression->name->toString())) {
+                'true' => ['type' => 'literal', 'value' => true],
+                'false' => ['type' => 'literal', 'value' => false],
+                'null' => ['type' => 'literal', 'value' => null],
+                default => null,
+            };
+        }
+
+        if (
+            $expression instanceof Node\Expr\PropertyFetch
+            && $expression->var instanceof Node\Expr\Variable
+            && is_string($expression->var->name)
+            && $expression->name instanceof Node\Identifier
+        ) {
+            return [
+                'type' => 'model_property',
+                'variable' => $expression->var->name,
+                'property' => $expression->name->toString(),
+            ];
+        }
+
+        if (
+            $expression instanceof Node\Expr\MethodCall
+            && $expression->var instanceof Node\Expr\Variable
+            && is_string($expression->var->name)
+            && $expression->name instanceof Node\Identifier
+            && $expression->name->toString() === 'getKey'
+            && $expression->args === []
+        ) {
+            return [
+                'type' => 'model_key',
+                'variable' => $expression->var->name,
+            ];
+        }
+
+        return null;
+    }
+
     private function valueForRules(array $rules): mixed
     {
         foreach ($rules as $rule) {
-            if (str_starts_with($rule, 'in:')) {
+            if (is_string($rule) && str_starts_with($rule, 'in:')) {
                 return explode(',', substr($rule, 3))[0];
             }
         }
@@ -520,6 +718,10 @@ class RequestValidationAnalyzer
     private function hasRule(array $rules, array $names): bool
     {
         foreach ($rules as $rule) {
+            if (! is_string($rule)) {
+                continue;
+            }
+
             $name = explode(':', $rule, 2)[0];
 
             if (in_array($name, $names, true)) {

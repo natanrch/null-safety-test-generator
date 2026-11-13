@@ -279,6 +279,60 @@ class WriteFeatureTestGeneratorTest extends TestCase
         );
     }
 
+    public function test_it_generates_a_wildcard_exists_fixture_and_collection_payload(): void
+    {
+        $result = $this->generator->generate([
+            'validation' => [
+                'post_ids' => ['rules' => ['required', 'array', 'min:2']],
+            ],
+            'payload' => ['post_ids' => []],
+            'validationFixtures' => [[
+                'model' => Post::class,
+                'variable' => 'postIdsRecords',
+                'count' => 2,
+                'constraints' => [],
+            ]],
+            'payloadExpressions' => [
+                'post_ids' => '$postIdsRecords->modelKeys()',
+            ],
+        ], [
+            'name' => 'posts.select',
+            'method' => 'POST',
+            'parameters' => [],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$postIdsRecords = \\' . Post::class
+                . '::factory()->count(2)->create();',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "['post_ids' => \$postIdsRecords->modelKeys()]",
+            $result['code']
+        );
+    }
+
+    public function test_it_rejects_an_unreliable_validation_payload(): void
+    {
+        $result = $this->generator->generate([
+            'validation' => ['post_ids' => ['rules' => ['required']]],
+            'payload' => [],
+            'payloadValid' => false,
+            'payloadError' => 'The wildcard constraint could not be resolved.',
+        ], [
+            'name' => 'posts.select',
+            'method' => 'POST',
+            'parameters' => [],
+        ]);
+
+        $this->assertFalse($result['generated']);
+        $this->assertSame(
+            'The wildcard constraint could not be resolved.',
+            $result['message']
+        );
+    }
+
     public function test_it_does_not_generate_when_an_exists_model_has_no_factory(): void
     {
         $result = $this->generator->generate([

@@ -8,10 +8,35 @@ use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeModelWithoutFactory;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakePost;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Models\FakeProfile;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author as RouteAuthor;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post as RoutePost;
 use PHPUnit\Framework\TestCase;
 
 class FactoryTestGeneratorTest extends TestCase
 {
+    public function test_it_generates_a_wildcard_exists_collection_fixture(): void
+    {
+        $result = (new FactoryTestGenerator())->generateValidationFixture([
+            'model' => RoutePost::class,
+            'variable' => 'postIdsRecords',
+            'count' => 2,
+            'constraints' => [[
+                'column' => 'author_id',
+                'source' => [
+                    'type' => 'model_property',
+                    'variable' => 'author',
+                    'property' => 'id',
+                ],
+            ]],
+        ]);
+
+        $this->assertTrue($result['generated']);
+        $this->assertSame(
+            '$postIdsRecords = \\' . RoutePost::class
+                . "::factory()->count(2)->create(['author_id' => \$author->id]);",
+            $result['code']
+        );
+    }
+
     public function test_it_generates_a_constrained_model_precondition(): void
     {
         $result = (new FactoryTestGenerator())->generateModelPrecondition([

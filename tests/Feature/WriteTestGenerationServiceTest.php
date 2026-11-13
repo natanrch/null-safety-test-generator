@@ -7,6 +7,7 @@ use Natan\NullSafetyTestGenerator\Services\WriteTestGenerationService;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PromotedServiceController;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\TestCase;
 
 class WriteTestGenerationServiceTest extends TestCase
@@ -101,6 +102,40 @@ class WriteTestGenerationServiceTest extends TestCase
                 . "'status' => 'draft', 'category_id' => \$category->id, 'tags' => []]",
             $result['code']
         );
+        $this->assertStringContainsString(
+            '$response->assertSessionHasNoErrors();',
+            $result['code']
+        );
+    }
+
+    public function test_it_generates_a_valid_wildcard_exists_payload(): void
+    {
+        $this->app->make(Router::class)
+            ->post('/authors/{author}/posts/select', [
+                PostController::class,
+                'storeSelectedPosts',
+            ])
+            ->name('authors.posts.select');
+
+        $result = $this->app
+            ->make(WriteTestGenerationService::class)
+            ->generate(PostController::class, 'storeSelectedPosts');
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$author = \\' . Author::class . '::factory()->create();',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$postIdsRecords = \\' . Post::class
+                . "::factory()->count(2)->create(['author_id' => \$author->id, 'title' => 'selected']);",
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            "['post_ids' => \$postIdsRecords->modelKeys()]",
+            $result['code']
+        );
+        $this->assertStringNotContainsString("'post_ids.*'", $result['code']);
         $this->assertStringContainsString(
             '$response->assertSessionHasNoErrors();',
             $result['code']

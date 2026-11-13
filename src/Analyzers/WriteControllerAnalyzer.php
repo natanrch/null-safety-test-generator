@@ -84,6 +84,12 @@ class WriteControllerAnalyzer
             'validation' => $validation['fields'],
             'payload' => $validation['payload'],
             'dependencies' => $validation['dependencies'] ?? [],
+            'payloadValid' => $validation['payloadValid'] ?? true,
+            'payloadError' => $validation['payloadError'] ?? null,
+            'validationFixtures' =>
+                $validation['validationFixtures'] ?? [],
+            'payloadExpressions' =>
+                $validation['payloadExpressions'] ?? [],
             'accesses' => $accesses,
             'scenarios' => $this->scenarioGenerator->generate([
                 'accesses' => $accesses,

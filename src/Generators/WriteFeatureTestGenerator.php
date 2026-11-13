@@ -65,6 +65,19 @@ class WriteFeatureTestGenerator
             ...$dependencySetup['code'],
         ];
 
+        $validationSetup = $this->generateValidationFixtures(
+            $analysis['validationFixtures'] ?? []
+        );
+
+        if (($validationSetup['generated'] ?? false) !== true) {
+            return $validationSetup;
+        }
+
+        $setup['code'] = [
+            ...$setup['code'],
+            ...$validationSetup['code'],
+        ];
+
         $httpMethod = strtolower($route['method']);
         $requestMethod = $httpMethod
             . (($route['expectsJson'] ?? false) === true ? 'Json' : '');
@@ -85,7 +98,11 @@ class WriteFeatureTestGenerator
                 'column' => 'getKey()',
             ];
         }
-        $payload = $this->exportPayload($payload, $dependencies);
+        $payload = $this->exportPayload(
+            $payload,
+            $dependencies,
+            $analysis['payloadExpressions'] ?? []
+        );
 
         $assertions = $this->generateAssertions($analysis, $route);
 
@@ -148,6 +165,12 @@ class WriteFeatureTestGenerator
 
     private function validate(array $analysis, array $route): ?string
     {
+        if (($analysis['payloadValid'] ?? true) !== true) {
+            return is_string($analysis['payloadError'] ?? null)
+                ? $analysis['payloadError']
+                : 'A valid request payload could not be generated.';
+        }
+
         if (! is_array($analysis['payload'] ?? null)) {
             return 'The write request analysis is invalid; the test could not be generated.';
         }
@@ -253,6 +276,28 @@ class WriteFeatureTestGenerator
         return ['generated' => true, 'code' => $code];
     }
 
+    private function generateValidationFixtures(array $fixtures): array
+    {
+        $code = [];
+
+        foreach ($fixtures as $fixture) {
+            if (! is_array($fixture)) {
+                continue;
+            }
+
+            $result = $this->factoryTestGenerator
+                ->generateValidationFixture($fixture);
+
+            if (($result['generated'] ?? false) !== true) {
+                return $result;
+            }
+
+            $code[] = $result['code'];
+        }
+
+        return ['generated' => true, 'code' => $code];
+    }
+
     private function normalizeName(string $name): string
     {
         $normalized = preg_replace('/[^a-zA-Z0-9]+/', '_', $name);
@@ -280,7 +325,8 @@ class WriteFeatureTestGenerator
 
     private function exportPayload(
         array $payload,
-        array $dependencies = []
+        array $dependencies = [],
+        array $expressions = []
     ): string
     {
         if ($payload === []) {
@@ -291,12 +337,14 @@ class WriteFeatureTestGenerator
 
         foreach ($payload as $field => $value) {
             $dependency = $dependencies[$field] ?? null;
-            $exportedValue = is_array($dependency)
+            $exportedValue = is_string($expressions[$field] ?? null)
+                ? $expressions[$field]
+                : (is_array($dependency)
                 && is_string($dependency['variable'] ?? null)
                 && is_string($dependency['column'] ?? null)
                     ? '$' . $dependency['variable']
                         . '->' . $dependency['column']
-                    : $this->exportValue($value);
+                    : $this->exportValue($value));
             $values[] = var_export($field, true)
                 . ' => ' . $exportedValue;
         }

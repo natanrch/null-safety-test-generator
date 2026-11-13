@@ -4,6 +4,7 @@ namespace Natan\NullSafetyTestGenerator\Tests\Unit;
 
 use Natan\NullSafetyTestGenerator\Analyzers\RequestValidationAnalyzer;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Controllers\PostController;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use PHPUnit\Framework\TestCase;
 
 class RequestValidationAnalyzerTest extends TestCase
@@ -94,6 +95,42 @@ class RequestValidationAnalyzerTest extends TestCase
         $this->assertSame(
             ['description'],
             $result['dependencies']['category_id']['accessedProperties']
+        );
+    }
+
+    public function test_it_analyzes_wildcard_rule_exists_with_a_route_model_constraint(): void
+    {
+        class_exists(Post::class);
+
+        $result = (new RequestValidationAnalyzer())->analyze(
+            PostController::class,
+            'storeSelectedPosts'
+        );
+
+        $this->assertArrayNotHasKey('post_ids.*', $result['payload']);
+        $this->assertSame(['post_ids' => []], $result['payload']);
+        $this->assertSame(Post::class, $result['validationFixtures'][0]['model']);
+        $this->assertSame(2, $result['validationFixtures'][0]['count']);
+        $this->assertSame([
+            [
+                'column' => 'author_id',
+                'source' => [
+                    'type' => 'model_property',
+                    'variable' => 'author',
+                    'property' => 'id',
+                ],
+            ],
+            [
+                'column' => 'title',
+                'source' => [
+                    'type' => 'literal',
+                    'value' => 'selected',
+                ],
+            ],
+        ], $result['validationFixtures'][0]['constraints']);
+        $this->assertSame(
+            '$postIdsRecords->modelKeys()',
+            $result['payloadExpressions']['post_ids']
         );
     }
 }

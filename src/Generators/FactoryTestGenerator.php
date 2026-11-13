@@ -96,6 +96,19 @@ class FactoryTestGenerator
             }
         }
 
+        foreach ($dependency['constraints'] ?? [] as $constraint) {
+            $state = $this->validationConstraintState($constraint);
+
+            if ($state === null) {
+                return [
+                    'generated' => false,
+                    'message' => 'An exists-rule constraint could not be rendered; the test could not be generated.',
+                ];
+            }
+
+            $states[] = $state;
+        }
+
         $factory = '\\' . $modelClass . '::factory()->create('
             . ($states === [] ? '' : '[' . implode(', ', $states) . ']')
             . ');';
@@ -104,6 +117,121 @@ class FactoryTestGenerator
             'generated' => true,
             'code' => '$' . $variable . ' = ' . $factory,
         ];
+    }
+
+    public function generateValidationFixture(array $fixture): array
+    {
+        $modelClass = $fixture['model'] ?? null;
+        $variable = $fixture['variable'] ?? null;
+        $count = $fixture['count'] ?? null;
+
+        if (
+            ! is_string($modelClass)
+            || ! class_exists($modelClass)
+            || ! is_subclass_of($modelClass, Model::class)
+        ) {
+            return [
+                'generated' => false,
+                'message' => sprintf(
+                    'The wildcard exists-rule model class %s is invalid; the test could not be generated.',
+                    is_string($modelClass) ? $modelClass : 'unknown'
+                ),
+            ];
+        }
+
+        if (! $this->factoryExists($modelClass)) {
+            return $this->factoryNotFoundResult($modelClass);
+        }
+
+        if (
+            ! is_string($variable)
+            || preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) !== 1
+            || ! is_int($count)
+            || $count < 1
+            || $count > 20
+        ) {
+            return [
+                'generated' => false,
+                'message' => 'The wildcard exists-rule fixture is invalid; the test could not be generated.',
+            ];
+        }
+
+        $states = [];
+
+        foreach ($fixture['constraints'] ?? [] as $constraint) {
+            $state = $this->validationConstraintState($constraint);
+
+            if ($state === null) {
+                return [
+                    'generated' => false,
+                    'message' => 'A wildcard exists-rule constraint could not be rendered; the test could not be generated.',
+                ];
+            }
+
+            $states[] = $state;
+        }
+
+        $factory = '\\' . $modelClass . '::factory()->count('
+            . $count . ')->create('
+            . ($states === []
+                ? ''
+                : '[' . implode(', ', $states) . ']')
+            . ');';
+
+        return [
+            'generated' => true,
+            'code' => '$' . $variable . ' = ' . $factory,
+        ];
+    }
+
+    private function validationConstraintState(mixed $constraint): ?string
+    {
+        if (
+            ! is_array($constraint)
+            || ! is_string($constraint['column'] ?? null)
+            || preg_match(
+                '/^[a-zA-Z_][a-zA-Z0-9_]*$/',
+                $constraint['column']
+            ) !== 1
+            || ! is_array($constraint['source'] ?? null)
+        ) {
+            return null;
+        }
+
+        $source = $constraint['source'];
+        $value = match ($source['type'] ?? null) {
+            'literal' => var_export($source['value'] ?? null, true),
+            'model_property' => $this->modelPropertyExpression($source),
+            'model_key' => $this->modelKeyExpression($source),
+            default => null,
+        };
+
+        return is_string($value)
+            ? var_export($constraint['column'], true) . ' => ' . $value
+            : null;
+    }
+
+    private function modelPropertyExpression(array $source): ?string
+    {
+        $variable = $source['variable'] ?? null;
+        $property = $source['property'] ?? null;
+
+        return is_string($variable)
+            && is_string($property)
+            && preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) === 1
+            && preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $property) === 1
+                ? '$' . $variable . '->' . $property
+                : null;
+    }
+
+    private function modelKeyExpression(array $source): ?string
+    {
+        $variable = $source['variable'] ?? null;
+
+        return is_string($variable)
+            && preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $variable) === 1
+                ? '$' . $variable . '->getKey()'
+                : null;
     }
 
     public function generateModelPrecondition(array $precondition): array

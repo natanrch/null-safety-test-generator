@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
+use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Author;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Category;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\CategoryWithoutFactory;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Requests\StorePostRequest;
@@ -103,6 +104,23 @@ class PostController
         $request->validate([
             'title' => ['required', 'string'],
             'attachment' => ['nullable', 'file', 'mimes:pdf'],
+        ]);
+
+        return response()->noContent();
+    }
+
+    public function storeSelectedPosts(Request $request, Author $author)
+    {
+        $request->validate([
+            'post_ids' => ['required', 'array', 'min:2'],
+            'post_ids.*' => [
+                'required',
+                'integer',
+                'distinct',
+                Rule::exists('posts', 'id')
+                    ->where('author_id', $author->id)
+                    ->where('title', 'selected'),
+            ],
         ]);
 
         return response()->noContent();
