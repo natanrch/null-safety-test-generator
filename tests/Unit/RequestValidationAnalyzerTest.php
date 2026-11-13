@@ -40,8 +40,18 @@ class RequestValidationAnalyzerTest extends TestCase
         $this->assertSame([
             'title' => 'test',
             'email' => 'test@example.com',
-            'published_at' => '2026-01-01',
         ], $result['payload']);
+    }
+
+    public function test_it_omits_nullable_files_from_the_valid_base_payload(): void
+    {
+        $result = (new RequestValidationAnalyzer())->analyze(
+            PostController::class,
+            'storeWithOptionalAttachment'
+        );
+
+        $this->assertSame(['title' => 'test'], $result['payload']);
+        $this->assertArrayHasKey('attachment', $result['fields']);
     }
 
     public function test_it_analyzes_the_validator_facade(): void

@@ -66,6 +66,8 @@ class WriteFeatureTestGenerator
         ];
 
         $httpMethod = strtolower($route['method']);
+        $requestMethod = $httpMethod
+            . (($route['expectsJson'] ?? false) === true ? 'Json' : '');
         $methodName = $scenario === null
             ? 'test_' . $this->normalizeName($route['name'])
                 . '_does_not_return_a_server_error_for_'
@@ -85,6 +87,8 @@ class WriteFeatureTestGenerator
         }
         $payload = $this->exportPayload($payload, $dependencies);
 
+        $assertions = $this->generateAssertions($analysis, $route);
+
         return [
             'generated' => true,
             'code' => implode("\n", [
@@ -92,15 +96,41 @@ class WriteFeatureTestGenerator
                 '{',
                 $setupCode,
                 '',
-                '    $response = $this->' . $httpMethod . '(',
+                '    $response = $this->' . $requestMethod . '(',
                 '        ' . $routeCall . ',',
                 '        ' . $payload,
                 '    );',
                 '',
-                '    $this->assertLessThan(500, $response->status());',
+                ...$assertions,
                 '}',
             ]),
         ];
+    }
+
+    private function generateAssertions(array $analysis, array $route): array
+    {
+        $assertions = [];
+        $method = strtoupper($route['method']);
+        $hasValidation = is_array($analysis['validation'] ?? null)
+            && $analysis['validation'] !== [];
+
+        if (
+            $hasValidation
+            && in_array($method, ['POST', 'PUT', 'PATCH'], true)
+        ) {
+            if (($route['expectsJson'] ?? false) === true) {
+                $assertions[] =
+                    '    $this->assertNotSame(422, $response->status());';
+            } else {
+                $assertions[] =
+                    '    $response->assertSessionHasNoErrors();';
+            }
+        }
+
+        $assertions[] =
+            '    $this->assertLessThan(500, $response->status());';
+
+        return $assertions;
     }
 
     public function generateAll(array $analysis, array $route): array

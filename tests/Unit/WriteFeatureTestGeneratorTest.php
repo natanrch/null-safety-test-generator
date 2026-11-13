@@ -7,6 +7,7 @@ use Natan\NullSafetyTestGenerator\Generators\WriteFeatureTestGenerator;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Post;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\Category;
 use Natan\NullSafetyTestGenerator\Tests\Fixtures\Laravel\Models\CategoryWithoutFactory;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class WriteFeatureTestGeneratorTest extends TestCase
@@ -138,6 +139,113 @@ class WriteFeatureTestGeneratorTest extends TestCase
         $this->assertTrue($result['generated']);
         $this->assertStringContainsString(
             "['title' => 'test', 'active' => true]",
+            $result['code']
+        );
+    }
+
+    #[DataProvider('validatedWriteMethods')]
+    public function test_it_asserts_that_validated_null_safety_requests_pass_validation(
+        string $method
+    ): void {
+        $result = $this->generator->generate(
+            [
+                'validation' => [
+                    'title' => ['rules' => ['required', 'string']],
+                ],
+                'payload' => ['title' => 'test'],
+            ],
+            [
+                'name' => 'posts.write',
+                'method' => $method,
+                'parameters' => [],
+            ]
+        );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$response->assertSessionHasNoErrors();',
+            $result['code']
+        );
+    }
+
+    public static function validatedWriteMethods(): array
+    {
+        return [
+            'POST' => ['POST'],
+            'PUT' => ['PUT'],
+            'PATCH' => ['PATCH'],
+        ];
+    }
+
+    public function test_it_does_not_assert_validation_without_detected_rules(): void
+    {
+        $result = $this->generator->generate(
+            ['validation' => [], 'payload' => []],
+            [
+                'name' => 'posts.store',
+                'method' => 'POST',
+                'parameters' => [],
+            ]
+        );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringNotContainsString(
+            'assertSessionHasNoErrors',
+            $result['code']
+        );
+    }
+
+    public function test_it_uses_json_validation_assertions_for_api_routes(): void
+    {
+        $result = $this->generator->generate(
+            [
+                'validation' => [
+                    'title' => ['rules' => ['required', 'string']],
+                ],
+                'payload' => ['title' => 'test'],
+            ],
+            [
+                'name' => 'api.posts.store',
+                'method' => 'POST',
+                'parameters' => [],
+                'expectsJson' => true,
+            ]
+        );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringContainsString(
+            '$response = $this->postJson(',
+            $result['code']
+        );
+        $this->assertStringContainsString(
+            '$this->assertNotSame(422, $response->status());',
+            $result['code']
+        );
+        $this->assertStringNotContainsString(
+            'assertSessionHasNoErrors',
+            $result['code']
+        );
+    }
+
+    public function test_it_does_not_add_a_session_validation_assertion_to_delete(): void
+    {
+        $result = $this->generator->generate(
+            [
+                'validation' => [
+                    'reason' => ['rules' => ['required', 'string']],
+                ],
+                'payload' => ['reason' => 'test'],
+            ],
+            [
+                'name' => 'posts.destroy',
+                'method' => 'DELETE',
+                'parameters' => [],
+            ]
+        );
+
+        $this->assertTrue($result['generated']);
+        $this->assertStringNotContainsString(
+            'assertSessionHasNoErrors',
             $result['code']
         );
     }

@@ -98,6 +98,16 @@ class PostController
         return response()->noContent();
     }
 
+    public function storeWithOptionalAttachment(Request $request)
+    {
+        $request->validate([
+            'title' => ['required', 'string'],
+            'attachment' => ['nullable', 'file', 'mimes:pdf'],
+        ]);
+
+        return response()->noContent();
+    }
+
     public function storeWithExistingCategory(Request $request)
     {
         $request->validate([

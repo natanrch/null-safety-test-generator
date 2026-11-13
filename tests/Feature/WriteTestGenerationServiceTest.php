@@ -101,6 +101,10 @@ class WriteTestGenerationServiceTest extends TestCase
                 . "'status' => 'draft', 'category_id' => \$category->id, 'tags' => []]",
             $result['code']
         );
+        $this->assertStringContainsString(
+            '$response->assertSessionHasNoErrors();',
+            $result['code']
+        );
     }
 
     public function test_it_generates_a_delete_file_with_model_binding_and_validated_payload(): void

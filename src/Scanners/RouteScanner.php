@@ -59,6 +59,10 @@ class RouteScanner
                 $result['parameterValues'] = $parameterValues;
             }
 
+            if ($this->expectsJson($route)) {
+                $result['expectsJson'] = true;
+            }
+
             return $result;
         }
 
@@ -106,6 +110,10 @@ class RouteScanner
 
             if ($parameterValues !== []) {
                 $resolvedRoute['parameterValues'] = $parameterValues;
+            }
+
+            if ($this->expectsJson($route)) {
+                $resolvedRoute['expectsJson'] = true;
             }
 
             $routes[] = $resolvedRoute;
@@ -162,10 +170,33 @@ class RouteScanner
                 $resolvedRoute['parameterValues'] = $parameterValues;
             }
 
+            if ($this->expectsJson($route)) {
+                $resolvedRoute['expectsJson'] = true;
+            }
+
             $routes[] = $resolvedRoute;
         }
 
         return $routes;
+    }
+
+    private function expectsJson(Route $route): bool
+    {
+        if (str_starts_with(trim($route->uri(), '/'), 'api/')) {
+            return true;
+        }
+
+        foreach ($route->gatherMiddleware() as $middleware) {
+            if (
+                $middleware === 'api'
+                || (is_string($middleware)
+                    && str_starts_with($middleware, 'api:'))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function getActionName(Route $route): string

@@ -145,4 +145,19 @@ class RouteScannerTest extends TestCase
         $this->assertSame(Post::class, $routes[1]['parameterModels']['post']['class']);
         $this->assertSame(Post::class, $routes[3]['parameterModels']['post']['class']);
     }
+
+    public function test_it_marks_api_write_routes_as_expecting_json(): void
+    {
+        $router = $this->app->make(Router::class);
+        $router->post('/api/posts', [PostController::class, 'store'])
+            ->middleware('api')
+            ->name('api.posts.store');
+
+        $result = (new RouteScanner($router))->find(
+            PostController::class,
+            'store'
+        );
+
+        $this->assertTrue($result['expectsJson'] ?? false);
+    }
 }

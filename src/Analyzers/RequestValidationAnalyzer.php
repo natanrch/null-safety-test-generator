@@ -76,17 +76,22 @@ class RequestValidationAnalyzer
             }
         }
 
+        $payload = [];
+
+        foreach ($fields as $field => $metadata) {
+            if ($this->shouldIncludeInBasePayload($metadata['rules'])) {
+                $payload[$field] = $metadata['value'];
+            }
+        }
+
         $result = [
             'fields' => $fields,
-            'payload' => array_map(
-                static fn (array $field): mixed => $field['value'],
-                $fields
-            ),
+            'payload' => $payload,
         ];
 
         if ($methodNode !== null) {
             $dependencies = $this->existsDependencies(
-                $fields,
+                array_intersect_key($fields, $payload),
                 $methodNode,
                 array_column($requestParameters, 'variable')
             );
@@ -97,6 +102,14 @@ class RequestValidationAnalyzer
         }
 
         return $result;
+    }
+
+    private function shouldIncludeInBasePayload(array $rules): bool
+    {
+        $optional = $this->hasRule($rules, ['nullable', 'sometimes']);
+        $required = $this->hasRule($rules, ['required', 'present']);
+
+        return ! $optional || $required;
     }
 
     private function existsDependencies(
